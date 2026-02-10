@@ -1,0 +1,8 @@
+pyhpo
+flask
+flask-sqlalchemy
+flask-cors
+pymysql
+cryptography
+openpyxl
+python-docx
