@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   fetchPatients,
   uploadVcfFile,
@@ -9,6 +9,7 @@ import {
   deleteVcfFile,
 } from "../api/client";
 import type { PatientInfo, VcfFileInfo } from "../types";
+import SearchableSelect from "../components/SearchableSelect";
 
 type UploadType = "vcf" | "singleton" | "trio";
 
@@ -35,7 +36,8 @@ function formatBytes(bytes: number | null): string {
 
 export default function Upload() {
   const [patients, setPatients] = useState<PatientInfo[]>([]);
-  const [patientId, setPatientId] = useState<number | "">("");
+  const [patientId, setPatientId] = useState<number | "">("")
+  const [patientLabel, setPatientLabel] = useState("");;
   const [uploadType, setUploadType] = useState<UploadType>("vcf");
   const [status, setStatus] = useState<{
     type: "success" | "error";
@@ -51,6 +53,26 @@ export default function Upload() {
 
   useEffect(() => {
     reloadPatients();
+  }, []);
+
+  const fetchPatientOptions = useCallback(async (search: string) => {
+    const pts = await fetchPatients(search);
+    setPatients(pts);
+    return pts.map((p) => `${p.lab_number} — ${p.name ?? "Unnamed"}`);
+  }, []);
+
+  const handlePatientSelect = useCallback((label: string) => {
+    setPatientLabel(label);
+    if (!label) {
+      setPatientId("");
+      return;
+    }
+    const labNum = label.split(" — ")[0];
+    setPatients((prev) => {
+      const found = prev.find((p) => p.lab_number === labNum);
+      setPatientId(found ? found.id : "");
+      return prev;
+    });
   }, []);
 
   // Load VCF files when patient changes
@@ -183,20 +205,12 @@ export default function Upload() {
       <div className="card mb-2">
         <div className="card-header primary">1. Select Patient</div>
         <div className="card-body">
-          <select
-            className="form-control"
-            value={patientId}
-            onChange={(e) =>
-              setPatientId(e.target.value ? Number(e.target.value) : "")
-            }
-          >
-            <option value="">— choose a patient —</option>
-            {patients.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.lab_number} — {p.name ?? "Unnamed"}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={patientLabel}
+            onChange={handlePatientSelect}
+            fetchOptions={fetchPatientOptions}
+            placeholder="Select patient…"
+          />
         </div>
       </div>
 

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   fetchReportPreview,
   downloadReport,
+  fetchPatients,
   type ReportPreview,
 } from "../api/client";
+import SearchableSelect from "../components/SearchableSelect";
 
 type TestType = "singleton" | "trio";
 
@@ -20,6 +22,13 @@ export default function Report() {
   const [testProcess, setTestProcess] = useState("");
   const [disclaimer, setDisclaimer] = useState("");
   const [references, setReferences] = useState("");
+
+  const fetchLabNumbers = useCallback(async (search: string) => {
+    const patients = await fetchPatients(search);
+    return patients
+      .map((p) => p.lab_number)
+      .filter((ln): ln is string => !!ln);
+  }, []);
 
   const handlePreview = async () => {
     if (!labNumber.trim()) return;
@@ -92,13 +101,11 @@ export default function Report() {
               <label className="mb-1">
                 <strong>Lab Number</strong>
               </label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="e.g. LAB-001"
+              <SearchableSelect
                 value={labNumber}
-                onChange={(e) => setLabNumber(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handlePreview()}
+                onChange={setLabNumber}
+                fetchOptions={fetchLabNumbers}
+                placeholder="Select lab number…"
               />
             </div>
             <div className="col-2">

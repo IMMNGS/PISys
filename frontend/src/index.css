@@ -540,6 +540,56 @@ code {
   background: #e2e6ea;
 }
 
+/* ── Searchable single-select ────────────────────────────────────────── */
+.searchable-select {
+  position: relative;
+}
+.searchable-select-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 12rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  cursor: pointer;
+  gap: 0.5rem;
+}
+.searchable-select-box:hover {
+  border-color: #adb5bd;
+}
+.searchable-select-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: transparent;
+  min-width: 0;
+  padding: 0;
+}
+.searchable-select-input::placeholder {
+  color: var(--muted);
+}
+.searchable-select-clear {
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.15rem;
+}
+.searchable-select-clear:hover {
+  color: var(--danger);
+}
+.searchable-select .dropdown-select-menu {
+  top: 100%;
+  margin-top: 2px;
+}
+
 /* ── Filter row inside table header ──────────────────────────────────── */
 .filter-row th {
   padding: 0.3rem 0.5rem;
