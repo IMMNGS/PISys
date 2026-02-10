@@ -15,7 +15,7 @@ class Config:
     MYSQL_PORT = os.environ.get("MYSQL_PORT", "3306")
 
     # Single database for everything
-    MYSQL_DB = os.environ.get("MYSQL_DB", "patient_info")
+    MYSQL_DB = os.environ.get("MYSQL_DB", "patient_db")
 
     SQLALCHEMY_DATABASE_URI = (
         f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}"

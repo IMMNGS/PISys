@@ -97,7 +97,7 @@ pip install -r requirements.txt
 ### 2. Create the MySQL database
 
 ```sql
-CREATE DATABASE IF NOT EXISTS patient_info CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS patient_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 ### 3. Configure connection (optional)
@@ -109,7 +109,7 @@ export MYSQL_USER=root
 export MYSQL_PASSWORD=password
 export MYSQL_HOST=localhost
 export MYSQL_PORT=3306
-export MYSQL_DB=patient_info
+export MYSQL_DB=patient_db
 ```
 
 ### 4. Build the frontend
