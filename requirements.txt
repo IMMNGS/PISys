@@ -1,3 +1,4 @@
+pandas
 pyhpo
 flask
 flask-sqlalchemy
