@@ -44,10 +44,10 @@ def create_app(config_class=Config):
     # Initialise extensions
     db.init_app(app)
 
-    # Register API blueprint
-    from backend.routes.api import api_bp
+    # Register API blueprints
+    from backend.routes import register_blueprints
 
-    app.register_blueprint(api_bp, url_prefix="/api")
+    register_blueprints(app)
 
     # Serve React SPA — all non-API routes fall through to index.html
     @app.route("/", defaults={"path": ""})

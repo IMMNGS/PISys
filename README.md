@@ -18,8 +18,14 @@ HA/
 │   ├── models.py            # SQLAlchemy models (patients, hpo_terms, singleton, trio, vcf_files, patient_hpo)
 │   ├── seed.py              # Seed script – loads HPO CSV + mock patients
 │   └── routes/
-│       ├── __init__.py
-│       └── api.py           # REST API endpoints
+│       ├── __init__.py      # Blueprint registration
+│       ├── helpers.py       # Shared constants & utilities
+│       ├── hpo_terms.py     # HPO term endpoints
+│       ├── patients.py      # Patient CRUD, XLSX import, HPO assignment
+│       ├── singletons.py    # Singleton variant CRUD + XLSX import
+│       ├── trios.py         # Trio variant CRUD + XLSX import
+│       ├── vcf.py           # VCF file upload, list, delete
+│       └── reports.py       # Report preview & .docx generation
 │
 ├── data/                    # Data directory (local now, remote-mountable in future)
 │   ├── all_hpo_terms.csv    # ~19,500 HPO terms (obtained using hpo_terms.py)
