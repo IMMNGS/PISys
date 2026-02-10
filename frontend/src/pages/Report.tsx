@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import {
   fetchReportPreview,
   downloadReport,
-  fetchPatients,
+  fetchPatientOptions,
   type ReportPreview,
 } from "../api/client";
 import SearchableSelect from "../components/SearchableSelect";
@@ -23,12 +23,18 @@ export default function Report() {
   const [disclaimer, setDisclaimer] = useState("");
   const [references, setReferences] = useState("");
 
-  const fetchLabNumbers = useCallback(async (search: string) => {
-    const patients = await fetchPatients(search);
-    return patients
-      .map((p) => p.lab_number)
-      .filter((ln): ln is string => !!ln);
-  }, []);
+  const fetchLabNumbers = useCallback(
+    async (search: string, limit: number, offset: number) => {
+      const result = await fetchPatientOptions(search, limit, offset);
+      return {
+        items: result.items
+          .map((p) => p.lab_number)
+          .filter((ln): ln is string => !!ln),
+        total: result.total,
+      };
+    },
+    [],
+  );
 
   const handlePreview = async () => {
     if (!labNumber.trim()) return;
@@ -106,6 +112,7 @@ export default function Report() {
                 onChange={setLabNumber}
                 fetchOptions={fetchLabNumbers}
                 placeholder="Select lab number…"
+                itemLabel="lab numbers"
               />
             </div>
             <div className="col-2">

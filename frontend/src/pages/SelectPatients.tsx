@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
-import { fetchPatients, fetchSelectedPatients } from "../api/client";
+import { fetchPatientList, fetchSelectedPatients } from "../api/client";
 import type { PatientInfo } from "../types";
+import type { PatientListFilters } from "../api/client";
 
 /* ── Tab definitions for the code-guide panel ─────────────────────────── */
 type ToolTab = "python" | "r" | "curl" | "sql";
@@ -159,36 +160,77 @@ const emptyFilters: Filters = {
   type_of_test: "",
 };
 
-function matchesFilters(p: PatientInfo, f: Filters): boolean {
-  const like = (val: string | null | undefined, q: string) =>
-    !q || (val ?? "").toLowerCase().includes(q.toLowerCase());
-  const ageStr = p.age != null ? `${p.age}` : "";
-  return (
-    like(p.lab_number, f.lab_number) &&
-    like(p.im_lab_number, f.im_lab_number) &&
-    like(p.name, f.name) &&
-    like(p.sex, f.sex) &&
-    like(ageStr, f.age) &&
-    like(p.type_of_test, f.type_of_test)
-  );
-}
+const PAGE_SIZE = 20;
+const LOAD_MORE_SIZE = 100;
 
 /* ── Component ────────────────────────────────────────────────────────── */
 export default function SelectPatients() {
-  const [allPatients, setAllPatients] = useState<PatientInfo[]>([]);
+  const [patients, setPatients] = useState<PatientInfo[]>([]);
+  const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [results, setResults] = useState<PatientInfo[] | null>(null);
   const [activeTab, setActiveTab] = useState<ToolTab>("python");
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  const loadPatients = useCallback(
+    async (f: Filters, offset = 0, limit = PAGE_SIZE, append = false) => {
+      const apiFilters: PatientListFilters = {};
+      if (f.lab_number) apiFilters.lab_number = f.lab_number;
+      if (f.im_lab_number) apiFilters.im_lab_number = f.im_lab_number;
+      if (f.name) apiFilters.name = f.name;
+      if (f.sex) apiFilters.sex = f.sex;
+      if (f.age) apiFilters.age = f.age;
+      if (f.type_of_test) apiFilters.type_of_test = f.type_of_test;
+
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+      try {
+        const data = await fetchPatientList(apiFilters, limit, offset);
+        if (append) {
+          setPatients((prev) => [...prev, ...data.items]);
+        } else {
+          setPatients(data.items);
+        }
+        setTotal(data.total);
+      } catch {
+        if (!append) setPatients([]);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [],
+  );
+
+  // Initial load
   useEffect(() => {
-    fetchPatients("").then(setAllPatients);
-  }, []);
+    loadPatients(emptyFilters);
+  }, [loadPatients]);
 
-  const filtered = allPatients.filter((p) => matchesFilters(p, filters));
+  // Debounced filter changes
+  const setFilter = (key: keyof Filters, value: string) => {
+    const next = { ...filters, [key]: value };
+    setFilters(next);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => loadPatients(next), 300);
+  };
 
-  const setFilter = (key: keyof Filters, value: string) =>
-    setFilters((prev) => ({ ...prev, [key]: value }));
+  const clearFilters = () => {
+    setFilters(emptyFilters);
+    loadPatients(emptyFilters);
+  };
+
+  const remaining = total - patients.length;
+
+  const handleLoadMore = () => {
+    loadPatients(filters, patients.length, LOAD_MORE_SIZE, true);
+  };
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -198,10 +240,10 @@ export default function SelectPatients() {
     });
 
   const toggleAll = () => {
-    if (selected.size === filtered.length && filtered.length > 0) {
+    if (selected.size === patients.length && patients.length > 0) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(filtered.map((p) => p.id)));
+      setSelected(new Set(patients.map((p) => p.id)));
     }
   };
 
@@ -231,7 +273,7 @@ export default function SelectPatients() {
                 <input
                   type="checkbox"
                   checked={
-                    selected.size === filtered.length && filtered.length > 0
+                    selected.size === patients.length && patients.length > 0
                   }
                   onChange={toggleAll}
                 />
@@ -297,7 +339,7 @@ export default function SelectPatients() {
               <th>
                 <button
                   className="btn btn-outline-secondary btn-sm"
-                  onClick={() => setFilters(emptyFilters)}
+                  onClick={clearFilters}
                   title="Clear all filters"
                 >
                   ✕
@@ -306,14 +348,20 @@ export default function SelectPatients() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={8} className="text-center text-muted">
+                  Loading…
+                </td>
+              </tr>
+            ) : patients.length === 0 ? (
               <tr>
                 <td colSpan={8} className="text-center text-muted">
                   No patients match the current filters.
                 </td>
               </tr>
             ) : (
-              filtered.map((p) => (
+              patients.map((p) => (
                 <tr
                   key={p.id}
                   className={selected.has(p.id) ? "row-selected" : ""}
@@ -346,15 +394,28 @@ export default function SelectPatients() {
       </div>
 
       <div className="flex-between mt-2">
-        <button
-          className="btn btn-primary"
-          disabled={selected.size === 0}
-          onClick={extract}
-        >
-          Extract Selected ({selected.size})
-        </button>
+        <div className="flex-gap">
+          <button
+            className="btn btn-primary"
+            disabled={selected.size === 0}
+            onClick={extract}
+          >
+            Extract Selected ({selected.size})
+          </button>
+          {remaining > 0 && (
+            <button
+              className="btn btn-outline-secondary"
+              disabled={loadingMore}
+              onClick={handleLoadMore}
+            >
+              {loadingMore
+                ? "Loading…"
+                : `Load more patients (${remaining} remaining)`}
+            </button>
+          )}
+        </div>
         <span className="text-muted">
-          {filtered.length} patient{filtered.length !== 1 ? "s" : ""} shown
+          {patients.length} of {total} patient{total !== 1 ? "s" : ""} shown
         </span>
       </div>
 

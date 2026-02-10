@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   fetchPatients,
+  fetchPatientOptions as fetchPatientOptionsApi,
   uploadVcfFile,
   uploadSingletonXlsx,
   uploadTrioXlsx,
@@ -36,8 +37,8 @@ function formatBytes(bytes: number | null): string {
 
 export default function Upload() {
   const [patients, setPatients] = useState<PatientInfo[]>([]);
-  const [patientId, setPatientId] = useState<number | "">("")
-  const [patientLabel, setPatientLabel] = useState("");;
+  const [patientId, setPatientId] = useState<number | "">("");
+  const [patientLabel, setPatientLabel] = useState("");
   const [uploadType, setUploadType] = useState<UploadType>("vcf");
   const [status, setStatus] = useState<{
     type: "success" | "error";
@@ -55,11 +56,24 @@ export default function Upload() {
     reloadPatients();
   }, []);
 
-  const fetchPatientOptions = useCallback(async (search: string) => {
-    const pts = await fetchPatients(search);
-    setPatients(pts);
-    return pts.map((p) => `${p.lab_number} — ${p.name ?? "Unnamed"}`);
-  }, []);
+  // Map of lab_number -> patient id for resolving selection
+  const patientIdMap = useRef<Map<string, number>>(new Map());
+
+  const fetchPatientOptions = useCallback(
+    async (search: string, limit: number, offset: number) => {
+      const result = await fetchPatientOptionsApi(search, limit, offset);
+      for (const p of result.items) {
+        patientIdMap.current.set(p.lab_number, p.id);
+      }
+      return {
+        items: result.items.map(
+          (p) => `${p.lab_number} \u2014 ${p.name ?? "Unnamed"}`,
+        ),
+        total: result.total,
+      };
+    },
+    [],
+  );
 
   const handlePatientSelect = useCallback((label: string) => {
     setPatientLabel(label);
@@ -67,12 +81,9 @@ export default function Upload() {
       setPatientId("");
       return;
     }
-    const labNum = label.split(" — ")[0];
-    setPatients((prev) => {
-      const found = prev.find((p) => p.lab_number === labNum);
-      setPatientId(found ? found.id : "");
-      return prev;
-    });
+    const labNum = label.split(" \u2014 ")[0];
+    const id = patientIdMap.current.get(labNum);
+    setPatientId(id ?? "");
   }, []);
 
   // Load VCF files when patient changes
@@ -210,6 +221,7 @@ export default function Upload() {
             onChange={handlePatientSelect}
             fetchOptions={fetchPatientOptions}
             placeholder="Select patient…"
+            itemLabel="patients"
           />
         </div>
       </div>

@@ -45,6 +45,54 @@ export function fetchPatients(search = ""): Promise<PatientInfo[]> {
   return json(`${BASE}/patients?${params}`);
 }
 
+export interface PatientOption {
+  id: number;
+  lab_number: string;
+  name: string | null;
+}
+
+export interface PaginatedOptions<T> {
+  items: T[];
+  total: number;
+}
+
+export function fetchPatientOptions(
+  search = "",
+  limit = 20,
+  offset = 0,
+): Promise<PaginatedOptions<PatientOption>> {
+  const params = new URLSearchParams({
+    search,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return json(`${BASE}/patients/options?${params}`);
+}
+
+export interface PatientListFilters {
+  lab_number?: string;
+  im_lab_number?: string;
+  name?: string;
+  sex?: string;
+  age?: string;
+  type_of_test?: string;
+}
+
+export function fetchPatientList(
+  filters: PatientListFilters = {},
+  limit = 20,
+  offset = 0,
+): Promise<PaginatedOptions<PatientInfo>> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) params.set(k, v);
+  }
+  return json(`${BASE}/patients/list?${params}`);
+}
+
 export function fetchPatient(id: number): Promise<PatientInfo> {
   return json(`${BASE}/patients/${id}`);
 }

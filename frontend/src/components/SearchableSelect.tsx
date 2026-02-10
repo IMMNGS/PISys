@@ -1,11 +1,27 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
+export interface FetchResult {
+  items: string[];
+  total: number;
+}
+
 interface SearchableSelectProps {
   value: string;
   onChange: (value: string) => void;
-  fetchOptions: (search: string) => Promise<string[]>;
+  /** Server-side paginated fetch: returns items for the given search, limit, offset */
+  fetchOptions: (
+    search: string,
+    limit: number,
+    offset: number,
+  ) => Promise<FetchResult>;
   placeholder?: string;
   debounceMs?: number;
+  /** Label used in the "Load more …" button, e.g. "patients" or "lab numbers" */
+  itemLabel?: string;
+  /** How many items to fetch initially (default 20) */
+  pageSize?: number;
+  /** How many more items to fetch per "Load more" click (default 100) */
+  loadMoreSize?: number;
 }
 
 export default function SearchableSelect({
@@ -14,15 +30,22 @@ export default function SearchableSelect({
   fetchOptions,
   placeholder = "Search…",
   debounceMs = 250,
+  itemLabel = "items",
+  pageSize = 20,
+  loadMoreSize = 100,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [options, setOptions] = useState<string[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const remaining = total - options.length;
 
   // close on outside click
   useEffect(() => {
@@ -40,17 +63,19 @@ export default function SearchableSelect({
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  // fetch options (immediate for initial load, debounced for typing)
+  // fetch first page (immediate or debounced)
   const loadOptions = useCallback(
     (q: string, immediate = false) => {
       clearTimeout(timerRef.current);
       const doFetch = async () => {
         setLoading(true);
         try {
-          const result = await fetchOptions(q);
-          setOptions(result);
+          const result = await fetchOptions(q, pageSize, 0);
+          setOptions(result.items);
+          setTotal(result.total);
         } catch {
           setOptions([]);
+          setTotal(0);
         } finally {
           setLoading(false);
         }
@@ -61,8 +86,22 @@ export default function SearchableSelect({
         timerRef.current = setTimeout(doFetch, debounceMs);
       }
     },
-    [fetchOptions, debounceMs],
+    [fetchOptions, debounceMs, pageSize],
   );
+
+  // load more from server
+  const handleLoadMore = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const result = await fetchOptions(search, loadMoreSize, options.length);
+      setOptions((prev) => [...prev, ...result.items]);
+      setTotal(result.total);
+    } catch {
+      // keep what we have
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [fetchOptions, search, loadMoreSize, options.length]);
 
   // load initial options once when first opened
   useEffect(() => {
@@ -72,7 +111,7 @@ export default function SearchableSelect({
     }
   }, [open, initialLoaded, loadOptions]);
 
-  // reset initial load flag when closed
+  // reset when closed
   useEffect(() => {
     if (!open) setInitialLoaded(false);
   }, [open]);
@@ -92,6 +131,7 @@ export default function SearchableSelect({
     onChange("");
     setSearch("");
     setOptions([]);
+    setTotal(0);
   };
 
   const handleTriggerClick = () => {
@@ -105,10 +145,7 @@ export default function SearchableSelect({
 
   return (
     <div className="searchable-select" ref={ref}>
-      <div
-        className="searchable-select-box"
-        onClick={handleTriggerClick}
-      >
+      <div className="searchable-select-box" onClick={handleTriggerClick}>
         {open ? (
           <input
             ref={inputRef}
@@ -124,11 +161,21 @@ export default function SearchableSelect({
             {value || placeholder}
           </span>
         )}
-        <span style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0 }}>
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.35rem",
+            flexShrink: 0,
+          }}
+        >
           {value && !open && (
             <span
               className="searchable-select-clear"
-              onClick={(e) => { e.stopPropagation(); handleClear(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClear();
+              }}
               title="Clear"
             >
               ×
@@ -141,12 +188,10 @@ export default function SearchableSelect({
       {open && (
         <div className="dropdown-select-menu">
           <ul className="dropdown-select-list">
-            {loading && (
-              <li className="dropdown-select-empty">Loading…</li>
-            )}
+            {loading && <li className="dropdown-select-empty">Loading…</li>}
             {!loading && options.length === 0 && (
               <li className="dropdown-select-empty">
-                {search ? "No matches found" : "No lab numbers available"}
+                {search ? "No matches found" : `No ${itemLabel} available`}
               </li>
             )}
             {!loading &&
@@ -160,6 +205,21 @@ export default function SearchableSelect({
                 </li>
               ))}
           </ul>
+          {!loading && remaining > 0 && (
+            <button
+              type="button"
+              className="dropdown-select-load-more"
+              disabled={loadingMore}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleLoadMore();
+              }}
+            >
+              {loadingMore
+                ? "Loading…"
+                : `Load more ${itemLabel} (${remaining} remaining)`}
+            </button>
+          )}
         </div>
       )}
     </div>

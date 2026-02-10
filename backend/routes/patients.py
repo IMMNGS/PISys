@@ -37,6 +37,68 @@ def get_patients():
     return jsonify([_patient_to_dict(p, **_FULL) for p in patients])
 
 
+@patients_bp.route("/patients/options", methods=["GET"])
+def get_patient_options():
+    """Lightweight paginated endpoint returning only id, lab_number, name.
+    Query params: search, limit (default 20), offset (default 0).
+    Returns {items: [...], total: int}."""
+    search = request.args.get("search", "").strip()
+    limit = request.args.get("limit", 20, type=int)
+    offset = request.args.get("offset", 0, type=int)
+
+    query = Patient.query
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                Patient.lab_number.ilike(like),
+                Patient.name.ilike(like),
+            )
+        )
+    query = query.order_by(Patient.id)
+    total = query.count()
+    patients = query.offset(offset).limit(limit).all()
+    items = [{"id": p.id, "lab_number": p.lab_number, "name": p.name}
+             for p in patients]
+    return jsonify({"items": items, "total": total})
+
+
+@patients_bp.route("/patients/list", methods=["GET"])
+def get_patient_list():
+    """Paginated patient list for the table view — lightweight (no nested data).
+    Supports per-column filters as query params.
+    Returns {items: [...], total: int}."""
+    limit = request.args.get("limit", 20, type=int)
+    offset = request.args.get("offset", 0, type=int)
+
+    query = Patient.query
+
+    # Per-column filters
+    for col_name, col_attr in [
+        ("lab_number", Patient.lab_number),
+        ("im_lab_number", Patient.im_lab_number),
+        ("name", Patient.name),
+        ("sex", Patient.sex),
+        ("type_of_test", Patient.type_of_test),
+    ]:
+        val = request.args.get(col_name, "").strip()
+        if val:
+            query = query.filter(col_attr.ilike(f"%{val}%"))
+
+    age_filter = request.args.get("age", "").strip()
+    if age_filter:
+        try:
+            query = query.filter(Patient.age == int(age_filter))
+        except ValueError:
+            pass  # ignore non-numeric age filter
+
+    query = query.order_by(Patient.id)
+    total = query.count()
+    patients = query.offset(offset).limit(limit).all()
+    items = [p.to_dict(include_hpo=False) for p in patients]
+    return jsonify({"items": items, "total": total})
+
+
 @patients_bp.route("/patients/<int:patient_id>", methods=["GET"])
 def get_patient(patient_id):
     patient = Patient.query.get_or_404(patient_id)
