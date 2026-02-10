@@ -15,7 +15,7 @@ HA/
 │   ├── app.py              # Flask factory – serves API + built SPA
 │   ├── config.py            # MySQL & app configuration (env-var driven)
 │   ├── hpo_terms.py         # Fetch HPO terms from pyhpo (used by refresh endpoint)
-│   ├── models.py            # SQLAlchemy models (hpo_terms, patient_info, patient_hpo)
+│   ├── models.py            # SQLAlchemy models (patients, hpo_terms, singleton, trio, vcf_files, patient_hpo)
 │   ├── seed.py              # Seed script – loads HPO CSV + mock patients
 │   └── routes/
 │       ├── __init__.py
@@ -39,12 +39,14 @@ HA/
 │       ├── types/
 │       │   └── index.ts      # TypeScript interfaces
 │       ├── components/
+│       │   ├── DropdownSelect.tsx
 │       │   └── Navbar.tsx
 │       └── pages/
 │           ├── Home.tsx
-│           ├── Patients.tsx
 │           ├── PatientDetail.tsx
 │           ├── SelectPatients.tsx
+│           ├── Upload.tsx
+│           ├── Report.tsx
 │           └── ManageHpo.tsx
 │
 ├── requirements.txt         # Python dependencies
@@ -88,7 +90,7 @@ pip install -r requirements.txt
 ### 2. Create the MySQL database
 
 ```sql
-CREATE DATABASE IF NOT EXISTS hpo_database CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS patient_info CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 ### 3. Configure connection (optional)
@@ -100,7 +102,7 @@ export MYSQL_USER=root
 export MYSQL_PASSWORD=password
 export MYSQL_HOST=localhost
 export MYSQL_PORT=3306
-export MYSQL_DB=hpo_database
+export MYSQL_DB=patient_info
 ```
 
 ### 4. Build the frontend
@@ -145,34 +147,87 @@ Vite runs on port 3000 and proxies `/api/*` requests to Flask on port 5000.
 
 | Route           | Description                                                                                     |
 | --------------- | ----------------------------------------------------------------------------------------------- |
-| `/`             | Home dashboard                                                                                  |
-| `/patients`     | View all patients with search, HPO terms, and notes                                             |
-| `/patients/:id` | Detailed view of a single patient                                                               |
+| `/`             | Home dashboard – view all patients with search, HPO terms, and findings                         |
+| `/patients/:id` | Detailed view of a single patient (singletons, trios, VCF files, HPO terms)                     |
 | `/select`       | Select patients from a list for further analysis                                                |
+| `/upload`       | Upload patient data, singleton/trio variants, and VCF files via XLSX                            |
+| `/report`       | Generate and preview clinical .docx reports for a patient                                       |
 | `/manage-hpo`   | Side-by-side searchable selectors to assign HPO terms; refresh button to pull latest from pyhpo |
 
 ## API Endpoints
 
+### HPO Terms
+
 | Method | Endpoint                                 | Description                                          |
 | ------ | ---------------------------------------- | ---------------------------------------------------- |
 | GET    | `/api/hpo_terms?search=&page=&per_page=` | Search/paginate HPO terms (by ID, name, or synonyms) |
+| GET    | `/api/hpo_terms/<id>`                    | Get a single HPO term                                |
 | POST   | `/api/hpo_terms/refresh`                 | Pull latest HPO terms from pyhpo and upsert into DB  |
-| GET    | `/api/patients?search=`                  | List all patients                                    |
-| GET    | `/api/patients/<id>`                     | Get single patient                                   |
-| POST   | `/api/patients`                          | Create a patient                                     |
-| PUT    | `/api/patients/<id>`                     | Update a patient                                     |
-| DELETE | `/api/patients/<id>`                     | Delete a patient                                     |
-| POST   | `/api/patients/assign_hpo`               | Assign HPO terms to patients                         |
-| DELETE | `/api/patients/<id>/hpo_terms/<tid>`     | Remove an HPO term from a patient                    |
-| POST   | `/api/patients/selected`                 | Get full data for selected patient IDs               |
-| POST   | `/api/patients/<id>/vcf`                 | Upload a VCF file for a patient                      |
-| DELETE | `/api/patients/<id>/vcf`                 | Remove the VCF file for a patient                    |
+
+### Patients
+
+| Method | Endpoint                 | Description                                                |
+| ------ | ------------------------ | ---------------------------------------------------------- |
+| GET    | `/api/patients?search=`  | List all patients                                          |
+| GET    | `/api/patients/<id>`     | Get single patient (includes HPO, singletons, trios, VCFs) |
+| POST   | `/api/patients`          | Create a patient                                           |
+| PUT    | `/api/patients/<id>`     | Update a patient                                           |
+| DELETE | `/api/patients/<id>`     | Delete a patient                                           |
+| POST   | `/api/patients/upload`   | Bulk import patients from XLSX                             |
+| POST   | `/api/patients/selected` | Get full data for selected patient IDs                     |
+
+### Patient ↔ HPO Assignment
+
+| Method | Endpoint                             | Description                          |
+| ------ | ------------------------------------ | ------------------------------------ |
+| GET    | `/api/patients/<id>/hpo_terms`       | List HPO terms assigned to a patient |
+| POST   | `/api/patients/assign_hpo`           | Assign HPO terms to patients         |
+| DELETE | `/api/patients/<id>/hpo_terms/<tid>` | Remove an HPO term from a patient    |
+
+### Singleton Variants
+
+| Method | Endpoint                              | Description                           |
+| ------ | ------------------------------------- | ------------------------------------- |
+| GET    | `/api/patients/<id>/singletons`       | List singleton findings for a patient |
+| POST   | `/api/patients/<id>/singletons`       | Create a singleton finding            |
+| GET    | `/api/singletons/<id>`                | Get a single singleton finding        |
+| PUT    | `/api/singletons/<id>`                | Update a singleton finding            |
+| DELETE | `/api/singletons/<id>`                | Delete a singleton finding            |
+| POST   | `/api/patients/<id>/upload/singleton` | Import singleton variants from XLSX   |
+
+### Trio Variants
+
+| Method | Endpoint                         | Description                      |
+| ------ | -------------------------------- | -------------------------------- |
+| GET    | `/api/patients/<id>/trios`       | List trio findings for a patient |
+| POST   | `/api/patients/<id>/trios`       | Create a trio finding            |
+| PUT    | `/api/trios/<id>`                | Update a trio finding            |
+| DELETE | `/api/trios/<id>`                | Delete a trio finding            |
+| POST   | `/api/patients/<id>/upload/trio` | Import trio variants from XLSX   |
+
+### VCF Files
+
+| Method | Endpoint                 | Description                     |
+| ------ | ------------------------ | ------------------------------- |
+| GET    | `/api/patients/<id>/vcf` | List VCF files for a patient    |
+| POST   | `/api/patients/<id>/vcf` | Upload a VCF file for a patient |
+| DELETE | `/api/vcf_files/<id>`    | Delete a VCF file (disk + DB)   |
+
+### Report Generation
+
+| Method | Endpoint               | Description                                   |
+| ------ | ---------------------- | --------------------------------------------- |
+| POST   | `/api/report/preview`  | Preview report data before generating .docx   |
+| POST   | `/api/report/generate` | Generate and download a clinical .docx report |
 
 ## Database Schema
 
 - **hpo_terms** — `id`, `hpo_id` (unique), `term_name`, `definition`, `synonyms`
-- **patient_info** — `id`, `patient_id` (unique), `first_name`, `last_name`, `date_of_birth`, `gender`, `email`, `phone`, `notes`, `hpo_id` (FK → hpo_terms), `vcf_file`, `created_at`
-- **patient_hpo** — many-to-many join: `patient_id` (FK), `hpo_term_id` (FK), `date_added`
+- **patients** — `id`, `report_date`, `lab_number` (unique), `im_lab_number`, `name`, `hkid`, `dob`, `sex`, `age`, `age_unit`, `ethnicity`, `specimen_collected`, `specimen_arrived`, `case_history`, `type_of_test`, `type_of_findings`, `findings_summary`, `ngs_batch`, `ngs_tat`, `ngs_tat_final`, `request_dr`, `remark`, `created_at`
+- **singleton** — `id`, `patient_id` (FK → patients), `reportable_variant`, `chr_pos`, `ref_alt`, `igv_review`, `second_review_comment`, `gene_names`, `hgvs_c`, `hgvs_p`, `exon_number`, `zygosity`, `inheritance`, `inherited_from`, `classification`, `omim_id`, `rsid`, `title`, `omimid`, `gene_region_combined`, `created_at`
+- **trio** — same columns as singleton
+- **vcf_files** — `id`, `patient_id` (FK → patients), `filename`, `relative_path`, `file_size`, `uploaded_at`
+- **patient_hpo** — many-to-many join: `id`, `patient_id` (FK → patients), `hpo_term_id` (FK → hpo_terms), `date_added`
 
 ## Data Directory
 

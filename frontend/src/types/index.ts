@@ -53,9 +53,6 @@ export interface TrioInfo {
   title: string | null;
   omimid: string | null;
   gene_region_combined: string | null;
-  father_genotype: string | null;
-  mother_genotype: string | null;
-  denovo: boolean | null;
   created_at: string | null;
 }
 

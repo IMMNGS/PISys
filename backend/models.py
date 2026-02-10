@@ -179,14 +179,12 @@ class Singleton(db.Model):
 
 
 class Trio(db.Model):
-    """Trio variant finding — proband + parents.
-    Each row is linked to a patient (the proband) via patient_id FK."""
+    """Trio variant finding.
+    Each row is linked to a patient via patient_id FK."""
     __tablename__ = "trio"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=False, index=True)
-
-    # Variant columns (mirrors singleton + trio-specific fields)
     reportable_variant = db.Column(db.Text, nullable=True)
     chr_pos = db.Column(db.String(200), nullable=True)
     ref_alt = db.Column(db.String(500), nullable=True)
@@ -205,11 +203,6 @@ class Trio(db.Model):
     title = db.Column(db.String(500), nullable=True)
     omimid = db.Column(db.String(50), nullable=True)
     gene_region_combined = db.Column(db.Text, nullable=True)
-
-    # Trio-specific: parental genotypes
-    father_genotype = db.Column(db.String(200), nullable=True)
-    mother_genotype = db.Column(db.String(200), nullable=True)
-    denovo = db.Column(db.Boolean, nullable=True, default=False)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -235,9 +228,6 @@ class Trio(db.Model):
             "title": self.title,
             "omimid": self.omimid,
             "gene_region_combined": self.gene_region_combined,
-            "father_genotype": self.father_genotype,
-            "mother_genotype": self.mother_genotype,
-            "denovo": self.denovo,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

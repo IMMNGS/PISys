@@ -454,7 +454,6 @@ TRIO_FIELDS = (
     "second_review_comment", "gene_names", "hgvs_c", "hgvs_p", "exon_number",
     "zygosity", "inheritance", "inherited_from", "classification",
     "omim_id", "rsid", "title", "omimid", "gene_region_combined",
-    "father_genotype", "mother_genotype", "denovo",
 )
 
 
