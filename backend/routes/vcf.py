@@ -2,7 +2,7 @@
 
 import os
 
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, abort, jsonify, request, current_app
 from werkzeug.utils import secure_filename
 
 from backend.models import db, Patient, VcfFile
@@ -20,7 +20,8 @@ def _allowed_vcf(filename: str) -> bool:
 @vcf_bp.route("/patients/<int:patient_id>/vcf", methods=["GET"])
 def list_vcf_files(patient_id):
     """List all VCF files for a patient."""
-    Patient.query.get_or_404(patient_id)
+    if not db.session.get(Patient, patient_id):
+        abort(404)
     files = VcfFile.query.filter_by(patient_id=patient_id).all()
     return jsonify([f.to_dict() for f in files])
 
@@ -34,7 +35,9 @@ def upload_vcf(patient_id):
     (NFS, SSHFS, S3-Fuse, etc.) — set the DATA_DIR / VCF_DIR
     environment variable on the server to redirect storage.
     """
-    patient = Patient.query.get_or_404(patient_id)
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
 
     if "file" not in request.files:
         return jsonify({"error": "No file part in request"}), 400
@@ -69,7 +72,9 @@ def upload_vcf(patient_id):
 @vcf_bp.route("/vcf_files/<int:vcf_id>", methods=["DELETE"])
 def delete_vcf_file(vcf_id):
     """Remove a single VCF file (disk + DB)."""
-    record = VcfFile.query.get_or_404(vcf_id)
+    record = db.session.get(VcfFile, vcf_id)
+    if not record:
+        abort(404)
     vcf_dir = current_app.config["VCF_DIR"]
     disk_path = os.path.join(vcf_dir, record.relative_path)
     if os.path.isfile(disk_path):

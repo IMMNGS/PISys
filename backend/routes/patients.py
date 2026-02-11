@@ -1,6 +1,6 @@
 """Patient CRUD and bulk-import routes."""
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 
 from backend.models import db, HPOTerm, Patient
 from backend.routes.helpers import (
@@ -101,7 +101,9 @@ def get_patient_list():
 
 @patients_bp.route("/patients/<int:patient_id>", methods=["GET"])
 def get_patient(patient_id):
-    patient = Patient.query.get_or_404(patient_id)
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
     return jsonify(_patient_to_dict(patient, **_FULL))
 
 
@@ -121,7 +123,9 @@ def create_patient():
 @patients_bp.route("/patients/<int:patient_id>", methods=["PUT"])
 def update_patient(patient_id):
     """Update an existing patient."""
-    patient = Patient.query.get_or_404(patient_id)
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
     data = request.get_json()
     for field in PATIENT_FIELDS:
         if field in data:
@@ -132,7 +136,9 @@ def update_patient(patient_id):
 
 @patients_bp.route("/patients/<int:patient_id>", methods=["DELETE"])
 def delete_patient(patient_id):
-    patient = Patient.query.get_or_404(patient_id)
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
     patient.hpo_terms.clear()
     db.session.delete(patient)
     db.session.commit()
@@ -209,7 +215,9 @@ def upload_patients_xlsx():
 @patients_bp.route("/patients/<int:patient_id>/hpo_terms", methods=["GET"])
 def get_patient_hpo_terms(patient_id):
     """List all HPO terms assigned to a patient."""
-    patient = Patient.query.get_or_404(patient_id)
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
     return jsonify([t.to_dict() for t in patient.hpo_terms])
 
 
@@ -242,8 +250,12 @@ def assign_hpo_to_patients():
 @patients_bp.route("/patients/<int:patient_id>/hpo_terms/<int:term_id>", methods=["DELETE"])
 def remove_hpo_from_patient(patient_id, term_id):
     """Remove an HPO term from a patient."""
-    patient = Patient.query.get_or_404(patient_id)
-    term = HPOTerm.query.get_or_404(term_id)
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
+    term = db.session.get(HPOTerm, term_id)
+    if not term:
+        abort(404)
     if term in patient.hpo_terms:
         patient.hpo_terms.remove(term)
     db.session.commit()

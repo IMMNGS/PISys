@@ -1,6 +1,6 @@
 """Singleton (variant) CRUD and XLSX import routes."""
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 
 from backend.models import db, Patient, Singleton
 from backend.routes.helpers import _parse_xlsx_rows, SINGLETON_FIELDS
@@ -11,7 +11,8 @@ singletons_bp = Blueprint("singletons", __name__)
 @singletons_bp.route("/patients/<int:patient_id>/singletons", methods=["GET"])
 def get_patient_singletons(patient_id):
     """List all singleton findings for a patient."""
-    Patient.query.get_or_404(patient_id)
+    if not db.session.get(Patient, patient_id):
+        abort(404)
     singletons = Singleton.query.filter_by(patient_id=patient_id).all()
     return jsonify([s.to_dict() for s in singletons])
 
@@ -19,7 +20,8 @@ def get_patient_singletons(patient_id):
 @singletons_bp.route("/patients/<int:patient_id>/singletons", methods=["POST"])
 def create_singleton(patient_id):
     """Create a new singleton finding for a patient."""
-    Patient.query.get_or_404(patient_id)
+    if not db.session.get(Patient, patient_id):
+        abort(404)
     data = request.get_json()
     singleton = Singleton(patient_id=patient_id)
     for field in SINGLETON_FIELDS:
@@ -33,14 +35,18 @@ def create_singleton(patient_id):
 @singletons_bp.route("/singletons/<int:singleton_id>", methods=["GET"])
 def get_singleton(singleton_id):
     """Get a single singleton finding by ID."""
-    singleton = Singleton.query.get_or_404(singleton_id)
+    singleton = db.session.get(Singleton, singleton_id)
+    if not singleton:
+        abort(404)
     return jsonify(singleton.to_dict())
 
 
 @singletons_bp.route("/singletons/<int:singleton_id>", methods=["PUT"])
 def update_singleton(singleton_id):
     """Update a singleton finding."""
-    singleton = Singleton.query.get_or_404(singleton_id)
+    singleton = db.session.get(Singleton, singleton_id)
+    if not singleton:
+        abort(404)
     data = request.get_json()
     for field in SINGLETON_FIELDS:
         if field in data:
@@ -52,7 +58,9 @@ def update_singleton(singleton_id):
 @singletons_bp.route("/singletons/<int:singleton_id>", methods=["DELETE"])
 def delete_singleton(singleton_id):
     """Delete a singleton finding."""
-    singleton = Singleton.query.get_or_404(singleton_id)
+    singleton = db.session.get(Singleton, singleton_id)
+    if not singleton:
+        abort(404)
     db.session.delete(singleton)
     db.session.commit()
     return jsonify({"message": "Singleton deleted"}), 200
@@ -68,7 +76,8 @@ def upload_singleton_xlsx(patient_id):
     (case-insensitive, spaces → underscores).  Unrecognised columns are
     silently ignored.
     """
-    Patient.query.get_or_404(patient_id)
+    if not db.session.get(Patient, patient_id):
+        abort(404)
 
     if "file" not in request.files:
         return jsonify({"error": "No file part in request"}), 400

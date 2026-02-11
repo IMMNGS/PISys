@@ -1,6 +1,6 @@
 """HPO term routes."""
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 
 from backend.models import db, HPOTerm
 
@@ -119,5 +119,7 @@ def get_hpo_options():
 
 @hpo_bp.route("/hpo_terms/<int:term_id>", methods=["GET"])
 def get_hpo_term(term_id):
-    term = HPOTerm.query.get_or_404(term_id)
+    term = db.session.get(HPOTerm, term_id)
+    if not term:
+        abort(404)
     return jsonify(term.to_dict())

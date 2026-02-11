@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 
@@ -10,7 +10,7 @@ patient_hpo = db.Table(
     db.Column("id", db.Integer, primary_key=True, autoincrement=True),
     db.Column("patient_id", db.Integer, db.ForeignKey("patients.id"), nullable=False),
     db.Column("hpo_term_id", db.Integer, db.ForeignKey("hpo_terms.id"), nullable=False),
-    db.Column("date_added", db.DateTime, default=datetime.utcnow),
+    db.Column("date_added", db.DateTime, default=lambda: datetime.now(timezone.utc)),
     db.UniqueConstraint("patient_id", "hpo_term_id", name="uq_patient_hpo"),
 )
 
@@ -62,7 +62,7 @@ class Patient(db.Model):
     request_dr = db.Column(db.String(200), nullable=True)
     remark = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     # One-to-many: a patient can have many singleton findings
     singletons = db.relationship("Singleton", backref="patient", lazy="dynamic",
@@ -150,7 +150,7 @@ class Singleton(db.Model):
     omimid = db.Column(db.String(50), nullable=True)
     gene_region_combined = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -204,7 +204,7 @@ class Trio(db.Model):
     omimid = db.Column(db.String(50), nullable=True)
     gene_region_combined = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -242,7 +242,7 @@ class VcfFile(db.Model):
     filename = db.Column(db.String(500), nullable=False)
     relative_path = db.Column(db.String(1000), nullable=False)
     file_size = db.Column(db.BigInteger, nullable=True)
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
