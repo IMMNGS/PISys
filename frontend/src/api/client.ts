@@ -38,6 +38,25 @@ export function refreshHPOTerms(): Promise<{
   return json(`${BASE}/hpo_terms/refresh`, { method: "POST" });
 }
 
+export interface HPOOption {
+  id: number;
+  hpo_id: string;
+  term_name: string;
+}
+
+export function fetchHPOOptions(
+  search = "",
+  limit = 20,
+  offset = 0,
+): Promise<PaginatedOptions<HPOOption>> {
+  const params = new URLSearchParams({
+    search,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return json(`${BASE}/hpo_terms/options?${params}`);
+}
+
 // ── Patients ─────────────────────────────────────────────────────────────
 
 export function fetchPatients(search = ""): Promise<PatientInfo[]> {

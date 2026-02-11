@@ -90,6 +90,33 @@ def get_hpo_terms():
     })
 
 
+@hpo_bp.route("/hpo_terms/options", methods=["GET"])
+def get_hpo_options():
+    """Lightweight paginated endpoint returning only id, hpo_id, term_name.
+    Query params: search, limit (default 20), offset (default 0).
+    Returns {items: [...], total: int}."""
+    search = request.args.get("search", "").strip()
+    limit = request.args.get("limit", 20, type=int)
+    offset = request.args.get("offset", 0, type=int)
+
+    query = HPOTerm.query
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                HPOTerm.hpo_id.ilike(like),
+                HPOTerm.term_name.ilike(like),
+                HPOTerm.synonyms.ilike(like),
+            )
+        )
+    query = query.order_by(HPOTerm.hpo_id)
+    total = query.count()
+    terms = query.offset(offset).limit(limit).all()
+    items = [{"id": t.id, "hpo_id": t.hpo_id, "term_name": t.term_name}
+             for t in terms]
+    return jsonify({"items": items, "total": total})
+
+
 @hpo_bp.route("/hpo_terms/<int:term_id>", methods=["GET"])
 def get_hpo_term(term_id):
     term = HPOTerm.query.get_or_404(term_id)

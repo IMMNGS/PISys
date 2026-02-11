@@ -1,27 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   fetchHPOTerms,
-  fetchPatients,
+  fetchHPOOptions,
+  fetchPatientOptions,
   assignHPO,
   refreshHPOTerms,
 } from "../api/client";
-import type { HPOTerm, PatientInfo } from "../types";
-import DropdownSelect from "../components/DropdownSelect";
-import type { DropdownItem } from "../components/DropdownSelect";
-
-const PAGE_SIZE = 20;
+import type { HPOTerm } from "../types";
+import SearchableMultiSelect from "../components/SearchableMultiSelect";
 
 export default function ManageHpo() {
-  // ── HPO dropdown state ─────────────────────────────────────────────────
-  const [allHpoTerms, setAllHpoTerms] = useState<HPOTerm[]>([]);
-  const [hpoTotal, setHpoTotal] = useState(0);
+  // ── Selection state ────────────────────────────────────────────────────
   const [selectedHpoIds, setSelectedHpoIds] = useState<Set<number>>(new Set());
-
-  // ── Patient dropdown state ─────────────────────────────────────────────
-  const [allPatients, setAllPatients] = useState<PatientInfo[]>([]);
+  const [selectedHpoLabels, setSelectedHpoLabels] = useState<Map<number, string>>(new Map());
   const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(
     new Set(),
   );
+  const [selectedPatientLabels, setSelectedPatientLabels] = useState<Map<number, string>>(new Map());
 
   // ── Messages ───────────────────────────────────────────────────────────
   const [assignMsg, setAssignMsg] = useState<{
@@ -40,15 +35,38 @@ export default function ManageHpo() {
   const [browsePage, setBrowsePage] = useState(1);
   const [browsePages, setBrowsePages] = useState(0);
 
-  // ── Load initial data ──────────────────────────────────────────────────
-  useEffect(() => {
-    // Load all HPO terms for the dropdown (rendered incrementally via DropdownSelect)
-    fetchHPOTerms("", 1, 100000).then((data) => {
-      setAllHpoTerms(data.items);
-      setHpoTotal(data.total);
-    });
-    fetchPatients("").then(setAllPatients);
-  }, []);
+  // ── Fetch callbacks for SearchableMultiSelect ─────────────────────────
+  const fetchHpoItems = useCallback(
+    async (search: string, limit: number, offset: number) => {
+      const result = await fetchHPOOptions(search, limit, offset);
+      const items = result.items.map((t) => ({
+        id: t.id,
+        label: `${t.hpo_id} \u2014 ${t.term_name}`,
+      }));
+      // Track labels for selected tags
+      for (const item of items) {
+        setSelectedHpoLabels((prev) => new Map(prev).set(item.id, item.label));
+      }
+      return { items, total: result.total };
+    },
+    [],
+  );
+
+  const fetchPatientItems = useCallback(
+    async (search: string, limit: number, offset: number) => {
+      const result = await fetchPatientOptions(search, limit, offset);
+      const items = result.items.map((p) => ({
+        id: p.id,
+        label: `${p.lab_number} \u2014 ${p.name ?? "N/A"}`,
+      }));
+      // Track labels for selected tags
+      for (const item of items) {
+        setSelectedPatientLabels((prev) => new Map(prev).set(item.id, item.label));
+      }
+      return { items, total: result.total };
+    },
+    [],
+  );
 
   // ── HPO selection ──────────────────────────────────────────────────────
   const toggleHpo = (id: number) => {
@@ -84,6 +102,14 @@ export default function ManageHpo() {
     });
   };
 
+  // Reset labels when assignment succeeds
+  const clearSelections = () => {
+    setSelectedHpoIds(new Set());
+    setSelectedPatientIds(new Set());
+    setSelectedHpoLabels(new Map());
+    setSelectedPatientLabels(new Map());
+  };
+
   // ── Assign action ─────────────────────────────────────────────────────
   const handleAssign = async () => {
     try {
@@ -92,8 +118,7 @@ export default function ManageHpo() {
         [...selectedHpoIds],
       );
       setAssignMsg({ type: "success", text: result.message });
-      setSelectedHpoIds(new Set());
-      setSelectedPatientIds(new Set());
+      clearSelections();
     } catch {
       setAssignMsg({ type: "danger", text: "Failed to assign HPO terms." });
     }
@@ -112,11 +137,6 @@ export default function ManageHpo() {
         setRefreshMsg({ type: "danger", text: data.error });
       } else {
         setRefreshMsg({ type: "success", text: data.message });
-        // Reload HPO terms after refresh
-        fetchHPOTerms("", 1, 100000).then((d) => {
-          setAllHpoTerms(d.items);
-          setHpoTotal(d.total);
-        });
       }
     } catch {
       setRefreshMsg({ type: "danger", text: "Failed to refresh HPO terms." });
@@ -136,15 +156,6 @@ export default function ManageHpo() {
     return () => clearTimeout(timer);
   }, [browseSearch, browsePage]);
 
-  // ── Dropdown items ─────────────────────────────────────────────────────
-  const hpoDropdownItems: DropdownItem[] = allHpoTerms.map((t) => ({
-    id: t.id,
-    label: `${t.hpo_id} — ${t.term_name}`,
-  }));
-  const patientDropdownItems: DropdownItem[] = allPatients.map((p) => ({
-    id: p.id,
-    label: `${p.lab_number} — ${p.name ?? "N/A"}`,
-  }));
   const canAssign = selectedHpoIds.size > 0 && selectedPatientIds.size > 0;
 
   return (
@@ -177,25 +188,23 @@ export default function ManageHpo() {
           <div className="card">
             <div className="card-header primary">HPO Terms</div>
             <div className="card-body">
-              <DropdownSelect
-                items={hpoDropdownItems}
-                placeholder="— Select HPO terms —"
+              <SearchableMultiSelect
                 selectedIds={selectedHpoIds}
                 onToggle={toggleHpo}
-                pageSize={PAGE_SIZE}
+                fetchOptions={fetchHpoItems}
+                placeholder="Select HPO terms…"
+                itemLabel="HPO terms"
               />
               {selectedHpoIds.size > 0 && (
                 <div className="selected-tags mt-1">
                   <small className="text-muted">Selected:</small>
                   <div className="tag-list">
-                    {allHpoTerms
-                      .filter((t) => selectedHpoIds.has(t.id))
-                      .map((t) => (
-                        <span key={t.id} className="tag">
-                          {t.hpo_id} — {t.term_name}
+                    {[...selectedHpoIds].map((id) => (
+                        <span key={id} className="tag">
+                          {selectedHpoLabels.get(id) ?? `#${id}`}
                           <button
                             className="tag-remove"
-                            onClick={() => removeHpoTerm(t.id)}
+                            onClick={() => removeHpoTerm(id)}
                           >
                             ×
                           </button>
@@ -213,25 +222,23 @@ export default function ManageHpo() {
           <div className="card">
             <div className="card-header success">Patients</div>
             <div className="card-body">
-              <DropdownSelect
-                items={patientDropdownItems}
-                placeholder="— Select patients —"
+              <SearchableMultiSelect
                 selectedIds={selectedPatientIds}
                 onToggle={togglePatient}
-                pageSize={PAGE_SIZE}
+                fetchOptions={fetchPatientItems}
+                placeholder="Select patients…"
+                itemLabel="patients"
               />
               {selectedPatientIds.size > 0 && (
                 <div className="selected-tags mt-1">
                   <small className="text-muted">Selected:</small>
                   <div className="tag-list">
-                    {allPatients
-                      .filter((p) => selectedPatientIds.has(p.id))
-                      .map((p) => (
-                        <span key={p.id} className="tag">
-                          {p.lab_number} — {p.name ?? "N/A"}
+                    {[...selectedPatientIds].map((id) => (
+                        <span key={id} className="tag">
+                          {selectedPatientLabels.get(id) ?? `#${id}`}
                           <button
                             className="tag-remove"
-                            onClick={() => removePatient(p.id)}
+                            onClick={() => removePatient(id)}
                           >
                             ×
                           </button>
