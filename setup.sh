@@ -9,7 +9,7 @@
 #    4. Create the MySQL database
 #    5. Create data directories (data/, data/vcf/)
 #    6. Install Node/frontend dependencies & build the React app
-#    7. Seed the database (HPO terms + mock patients)
+#    7. Seed the database (HPO terms) & generate demo patients
 #
 #  Usage:
 #    chmod +x setup.sh
@@ -158,9 +158,13 @@ cd "$PROJECT_DIR"
 echo ""
 
 # ── 7. Seed database ────────────────────────────────────────────────────
-info "Seeding database with HPO terms and mock patients…"
+info "Seeding HPO terms…"
 $PYTHON -m backend.seed
-ok "Database seeded"
+ok "HPO terms loaded"
+
+info "Generating demo patients…"
+$PYTHON -m backend.generate_mock_data --predefined
+ok "Database seeded (HPO terms + 20 demo patients)"
 echo ""
 
 # ── Done ─────────────────────────────────────────────────────────────────

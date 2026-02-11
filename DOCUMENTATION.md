@@ -1,7 +1,7 @@
 # Patient Information System — Full Codebase Documentation
 
-> **Version:** 1.0.0  
-> **Last Updated:** February 10, 2026  
+> **Version:** 1.1.0  
+> **Last Updated:** February 11, 2026  
 > **Stack:** Python 3 / Flask / SQLAlchemy (backend) · TypeScript / React / Vite (frontend) · MySQL (database)
 
 ---
@@ -38,7 +38,7 @@
 8. [API Reference](#8-api-reference)
 9. [Data Directory](#9-data-directory)
 10. [Environment Variables Reference](#10-environment-variables-reference)
-11. [Deployment Notes](#11-deployment-notes)
+11. [Production Deployment](#11-production-deployment)
 
 ---
 
@@ -54,18 +54,21 @@ The Patient Information System is a full-stack web application for managing pati
                              │  HTTP (JSON + FormData)
                              │  /api/*
 ┌────────────────────────────▼─────────────────────────────────────┐
+│              Gunicorn WSGI Server (production)                   │
+│  Multi-worker, gthread worker class, 120s timeout                │
+│──────────────────────────────────────────────────────────────────│
 │                     Flask Application Server                     │
 │  - Serves REST API under /api                                    │
 │  - Serves built React SPA for all other routes                   │
-│  - CORS enabled for Vite dev server                              │
+│  - CORS restricted by origin in production                       │
 │  Blueprints: hpo_terms, patients, singletons, trios, vcf,reports │
 └────────┬──────────────────────────────┬──────────────────────────┘
          │  SQLAlchemy (PyMySQL)        │  Filesystem I/O
          ▼                              ▼
 ┌─────────────────┐          ┌─────────────────────┐
-│    MySQL 8.0+   │          │   data/vcf/<lab>/    │
-│  patient_db     │          │  VCF file storage    │
-│                 │          │  (local or NFS/S3)   │
+│    MySQL 8.0+   │          │   data/vcf/<lab>/   │
+│  patient_db     │          │  VCF file storage   │
+│                 │          │  (local or NFS/S3)  │
 └─────────────────┘          └─────────────────────┘
 ```
 
@@ -75,6 +78,7 @@ The Patient Information System is a full-stack web application for managing pati
 - **Single database** (`patient_db`) holding all tables — patients, HPO terms, singletons, trios, VCF metadata, and the many-to-many join table.
 - **File storage** for VCF files is on disk under a configurable `DATA_DIR`/`VCF_DIR`, enabling future migration to network-mounted or cloud-fuse storage.
 - **SPA fallback**: In production, Flask serves the built React app from `frontend/dist/`. During development, Vite's dev server on port 3000 proxies `/api` requests to Flask on port 5001.
+- **Production-ready**: Gunicorn WSGI server with configurable workers, threads, and timeouts. Environment-based configuration selects `DevelopmentConfig` or `ProductionConfig`.
 
 ---
 
@@ -83,7 +87,10 @@ The Patient Information System is a full-stack web application for managing pati
 ```
 HA/
 ├── run.py                        # Application entry-point
+├── gunicorn.conf.py              # Gunicorn production configuration
 ├── setup.sh                      # One-command full setup script
+├── start_production.sh           # One-command production start script
+├── .env.example                  # Environment variable template
 ├── requirements.txt              # Python dependencies
 ├── README.md                     # Project README
 ├── DOCUMENTATION.md              # This file
@@ -93,8 +100,8 @@ HA/
 │   ├── app.py                    # Flask app factory + SPA serving
 │   ├── config.py                 # Configuration class (env-var driven)
 │   ├── models.py                 # SQLAlchemy ORM models
-│   ├── seed.py                   # DB seeder: HPO CSV + 20 mock patients
-│   ├── generate_mock_data.py     # Bulk 1,000-patient generation script
+│   ├── seed.py                   # DB seeder: HPO CSV only (production-safe)
+│   ├── generate_mock_data.py     # ALL mock data: 20 demo + 1,000 bulk patients
 │   └── routes/                   # API route blueprints
 │       ├── __init__.py           # Blueprint registration
 │       ├── helpers.py            # Shared utilities & field constants
@@ -162,11 +169,12 @@ The `setup.sh` script performs the following steps:
 4. **MySQL database** — creates the `patient_db` database (or the database named by `MYSQL_DB`).
 5. **Data directories** — creates `data/` and `data/vcf/`.
 6. **Frontend build** — runs `npm install && npm run build` in `frontend/`.
-7. **Database seeding** — seeds HPO terms from CSV and creates 20 mock patients with singleton findings.
+7. **Database seeding** — seeds HPO terms from CSV (production-safe). Demo patients are generated separately via `generate_mock_data.py`.
 
 After setup, start the server:
 
 ```bash
+# Development
 python run.py
 ```
 
@@ -184,13 +192,15 @@ mysql -u root -e "CREATE DATABASE IF NOT EXISTS patient_db CHARACTER SET utf8mb4
 # 3. Build frontend
 cd frontend && npm install && npm run build && cd ..
 
-# 4. Seed database
+# 4. Seed database (HPO terms only — production-safe)
 python -m backend.seed
 
-# 5. (Optional) Generate 1,000 mock patients for load testing
-python -m backend.generate_mock_data
+# 5. (Optional) Generate mock patients
+python -m backend.generate_mock_data --predefined   # 20 demo patients
+python -m backend.generate_mock_data --bulk          # 1,000 random patients
+python -m backend.generate_mock_data                 # both (default)
 
-# 6. Run
+# 6. Run (development)
 python run.py
 ```
 
@@ -206,22 +216,50 @@ python run.py          # Flask on port 5001
 cd frontend && npm run dev    # Vite on port 3000, proxies /api → 5001
 ```
 
+### Production Mode
+
+```bash
+# 1. Copy and configure environment
+cp .env.example .env
+# Edit .env — at minimum set SECRET_KEY and MYSQL_PASSWORD
+
+# 2. Generate a secret key
+python -c "import secrets; print(secrets.token_hex(32))"
+
+# 3. Start production server
+chmod +x start_production.sh
+./start_production.sh
+```
+
+Or manually:
+
+```bash
+export FLASK_ENV=production
+export SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+cd frontend && npm ci && npm run build && cd ..
+gunicorn -c gunicorn.conf.py run:app
+```
+
+The production server binds to `0.0.0.0:8000` by default.
+
 ---
 
 ## 4. Configuration
 
-All configuration is centralized in `backend/config.py` via the `Config` class. Every setting can be overridden with environment variables.
+All configuration is centralized in `backend/config.py` via a class hierarchy (`Config` → `DevelopmentConfig` / `ProductionConfig`). The active config is selected by the `FLASK_ENV` environment variable. Every setting can be overridden with environment variables.
 
-| Setting              | Env Var          | Default                               | Description                                    |
-| -------------------- | ---------------- | ------------------------------------- | ---------------------------------------------- |
-| `SECRET_KEY`         | `SECRET_KEY`     | `dev-secret-key-change-in-production` | Flask secret key                               |
-| `MYSQL_USER`         | `MYSQL_USER`     | `root`                                | MySQL username                                 |
-| `MYSQL_PASSWORD`     | `MYSQL_PASSWORD` | (empty)                               | MySQL password                                 |
-| `MYSQL_HOST`         | `MYSQL_HOST`     | `localhost`                           | MySQL hostname                                 |
-| `MYSQL_PORT`         | `MYSQL_PORT`     | `3306`                                | MySQL port                                     |
-| `MYSQL_DB`           | `MYSQL_DB`       | `patient_db`                          | Database name                                  |
-| `DATA_DIR`           | `DATA_DIR`       | `<project_root>/data`                 | Root data directory for VCF files and CSV data |
-| `MAX_CONTENT_LENGTH` | `MAX_UPLOAD_MB`  | `5000` MB                             | Maximum upload file size                       |
+| Setting              | Env Var          | Default                               | Description                                     |
+| -------------------- | ---------------- | ------------------------------------- | ----------------------------------------------- |
+| `FLASK_ENV`          | `FLASK_ENV`      | `development`                         | Config selection: `development` or `production` |
+| `SECRET_KEY`         | `SECRET_KEY`     | `dev-secret-key-change-in-production` | Flask secret key (**required** in production)   |
+| `MYSQL_USER`         | `MYSQL_USER`     | `root`                                | MySQL username                                  |
+| `MYSQL_PASSWORD`     | `MYSQL_PASSWORD` | (empty)                               | MySQL password                                  |
+| `MYSQL_HOST`         | `MYSQL_HOST`     | `localhost`                           | MySQL hostname                                  |
+| `MYSQL_PORT`         | `MYSQL_PORT`     | `3306`                                | MySQL port                                      |
+| `MYSQL_DB`           | `MYSQL_DB`       | `patient_db`                          | Database name                                   |
+| `DATA_DIR`           | `DATA_DIR`       | `<project_root>/data`                 | Root data directory for VCF files and CSV data  |
+| `MAX_CONTENT_LENGTH` | `MAX_UPLOAD_MB`  | `5000` MB                             | Maximum upload file size                        |
+| `CORS_ORIGINS`       | `CORS_ORIGINS`   | (none)                                | Comma-separated allowed origins (production)    |
 
 The `SQLALCHEMY_DATABASE_URI` is constructed automatically from the MySQL settings:
 
@@ -401,32 +439,43 @@ Metadata for uploaded VCF files. Actual files reside on disk.
 ### 6.1 Entry Point — `run.py`
 
 ```python
+import os
 from backend.app import create_app
-app = create_app()
+
+env = os.environ.get("FLASK_ENV", "development")
+app = create_app(env)
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
 ```
 
-- Imports and calls the application factory.
-- Runs the Flask development server on **port 5001** with debug mode enabled.
-- In production, use a WSGI server (Gunicorn, uWSGI) pointed at `create_app()`.
+- Reads `FLASK_ENV` environment variable to select the configuration (`development` or `production`).
+- Calls the application factory with the config name.
+- When run directly (`python run.py`), starts the Flask development server on **port 5001** with debug mode.
+- In production, Gunicorn imports `app` from this module: `gunicorn -c gunicorn.conf.py run:app`.
 
 ### 6.2 Application Factory — `backend/app.py`
 
-**Function: `create_app(config_class=Config) → Flask`**
+**Function: `create_app(config_name="development") → Flask`**
 
 Creates and configures the Flask application instance.
+
+**Arguments:**
+
+- `config_name` — one of `"development"`, `"production"`, or `"default"`. Selects the corresponding config class from `backend/config.py`.
 
 **Responsibilities:**
 
 1. **Creates Flask app** with `static_folder` pointed at `frontend/dist/` for serving the built SPA.
-2. **Loads configuration** from the `Config` class.
-3. **Enables CORS** for `/api/*` endpoints (allows the Vite dev server on port 3000).
-4. **Initializes SQLAlchemy** via `db.init_app(app)`.
-5. **Registers all API blueprints** under the `/api` URL prefix.
-6. **Sets up SPA fallback routing**: any non-API route serves `index.html` from the built frontend; if the frontend isn't built, returns a helpful message.
-7. **Ensures the MySQL database exists** (creates it if missing via raw PyMySQL connection).
-8. **Creates all database tables** via `db.create_all()`.
+2. **Loads configuration** from the selected config class.
+3. **Runs config-specific initialization** — e.g., `ProductionConfig.init_app()` validates that `SECRET_KEY` is set.
+4. **Configures logging** — structured logging with timestamps in production.
+5. **Enables CORS** — allows all origins in development; restricts to `CORS_ORIGINS` in production.
+6. **Initializes SQLAlchemy** via `db.init_app(app)`.
+7. **Registers all API blueprints** under the `/api` URL prefix.
+8. **Sets up SPA fallback routing**: any non-API route serves `index.html` from the built frontend.
+9. **Ensures the MySQL database exists** (creates it if missing via raw PyMySQL connection).
+10. **Creates all database tables** via `db.create_all()`.
 
 **Function: `_ensure_databases(config_class)`**
 
@@ -438,9 +487,13 @@ CREATE DATABASE IF NOT EXISTS `<db_name>` CHARACTER SET utf8mb4 COLLATE utf8mb4_
 
 ### 6.3 Configuration — `backend/config.py`
 
-**Class: `Config`**
+**Class hierarchy:**
 
-A plain Python class whose class attributes constitute the application configuration. All values are read from environment variables with sensible defaults for local development.
+- `Config` — Base class with shared defaults. All values read from environment variables.
+- `DevelopmentConfig(Config)` — Sets `DEBUG = True`.
+- `ProductionConfig(Config)` — Sets `DEBUG = False`, requires `SECRET_KEY` from env, provides `init_app()` validation.
+
+**Config map:** `config = { "development": DevelopmentConfig, "production": ProductionConfig, "default": DevelopmentConfig }`
 
 Key computed attributes:
 
@@ -481,30 +534,34 @@ patient.to_dict(
 
 **Usage:** `python -m backend.seed`
 
-Seeds the database with initial data:
+Seeds the database with **reference data only** — this file contains no mock/patient data and is production-safe.
 
-1. **`seed_hpo_terms(csv_path)`** — reads `data/all_hpo_terms.csv` and bulk-inserts HPO terms that don't already exist. Expects columns: `hpo_id`, `term_name`, `definition`, `synonyms`.
-
-2. **`seed_patients()`** — creates 20 predefined mock patients with:
-   - Realistic clinical data (case histories, test types, findings).
-   - One singleton variant finding per patient.
-   - 1–4 random HPO term assignments per patient.
-   - Skips patients whose `lab_number` already exists.
-
-**Helper functions:**
-
-- `random_date(start_year, end_year)` — generates a random date in the given year range.
-- `random_dob(age, age_unit)` — derives a plausible date of birth from age/unit.
+- **`seed_hpo_terms(csv_path)`** — reads `data/all_hpo_terms.csv` and bulk-inserts HPO terms that don't already exist. Expects columns: `hpo_id`, `term_name`, `definition`, `synonyms`.
 
 ### 6.6 Mock Data Generator — `backend/generate_mock_data.py`
 
-**Usage:** `python -m backend.generate_mock_data`
+The **single source** of all mock patient data. `seed.py` never touches patient records.
 
-Generates **1,000 mock patients** (lab numbers `LAB-0100` through `LAB-1099`) for load testing. Safe to run multiple times — duplicates are skipped.
+**Usage:**
 
-**For each patient creates:**
+```bash
+python -m backend.generate_mock_data                 # all (default)
+python -m backend.generate_mock_data --predefined    # 20 demo patients only
+python -m backend.generate_mock_data --bulk           # 1,000 random patients only
+```
 
-- 1–3 singleton variant findings.
+Safe to run multiple times — duplicates are skipped by `lab_number`.
+
+**Predefined patients (LAB-001 … LAB-020):**
+
+- 20 hand-crafted clinical scenarios (CFTR, BRCA1/2, GJB2, TP53, etc.).
+- One singleton variant finding per patient with curated HGVS, OMIM, and inheritance data.
+- 1–4 random HPO term assignments.
+
+**Bulk patients (LAB-0100 … LAB-1099):**
+
+- 1,000 randomly generated patients for load testing.
+- 1–3 singleton variant findings per patient.
 - 0–2 trio variant findings (for ~40% of patients).
 - 1–5 random HPO term assignments.
 
@@ -516,10 +573,11 @@ Generates **1,000 mock patients** (lab numbers `LAB-0100` through `LAB-1099`) fo
 
 **Key functions:**
 
+- `seed_predefined_patients()` — inserts the 20 curated demo patients with singletons.
+- `generate_bulk_patients()` — generates 1,000 random patients in batches of 100.
 - `generate_patient(idx)` — generates a randomized patient dict.
 - `generate_variant(patient_id)` — generates a randomized variant dict for either singleton or trio use.
 - `random_hkid()` — generates a plausible Hong Kong ID card number.
-- **Batch processing** — commits in batches of 100 for performance.
 
 ### 6.7 Route Registration — `backend/routes/__init__.py`
 
@@ -1110,36 +1168,136 @@ The entire `data/` directory can be relocated by setting the `DATA_DIR` environm
 
 ## 10. Environment Variables Reference
 
-| Variable         | Default               | Used In     | Description                         |
-| ---------------- | --------------------- | ----------- | ----------------------------------- |
-| `SECRET_KEY`     | `dev-secret-key-...`  | `config.py` | Flask session secret key            |
-| `MYSQL_USER`     | `root`                | `config.py` | MySQL username                      |
-| `MYSQL_PASSWORD` | (empty)               | `config.py` | MySQL password                      |
-| `MYSQL_HOST`     | `localhost`           | `config.py` | MySQL host                          |
-| `MYSQL_PORT`     | `3306`                | `config.py` | MySQL port                          |
-| `MYSQL_DB`       | `patient_db`          | `config.py` | MySQL database name                 |
-| `DATA_DIR`       | `<project_root>/data` | `config.py` | Root directory for VCF & data files |
-| `MAX_UPLOAD_MB`  | `5000`                | `config.py` | Maximum upload size in megabytes    |
+| Variable                    | Default               | Used In            | Description                         |
+| --------------------------- | --------------------- | ------------------ | ----------------------------------- |
+| `FLASK_ENV`                 | `development`         | `run.py`           | Config selection (dev/production)   |
+| `SECRET_KEY`                | `dev-secret-key-...`  | `config.py`        | Flask session secret key            |
+| `MYSQL_USER`                | `root`                | `config.py`        | MySQL username                      |
+| `MYSQL_PASSWORD`            | (empty)               | `config.py`        | MySQL password                      |
+| `MYSQL_HOST`                | `localhost`           | `config.py`        | MySQL host                          |
+| `MYSQL_PORT`                | `3306`                | `config.py`        | MySQL port                          |
+| `MYSQL_DB`                  | `patient_db`          | `config.py`        | MySQL database name                 |
+| `DATA_DIR`                  | `<project_root>/data` | `config.py`        | Root directory for VCF & data files |
+| `MAX_UPLOAD_MB`             | `5000`                | `config.py`        | Maximum upload size in megabytes    |
+| `CORS_ORIGINS`              | (none)                | `app.py`           | Comma-separated allowed origins     |
+| `GUNICORN_BIND`             | `0.0.0.0:8000`        | `gunicorn.conf.py` | Server bind address                 |
+| `GUNICORN_WORKERS`          | `(CPUs × 2) + 1`      | `gunicorn.conf.py` | Number of worker processes          |
+| `GUNICORN_WORKER_CLASS`     | `gthread`             | `gunicorn.conf.py` | Worker type                         |
+| `GUNICORN_THREADS`          | `4`                   | `gunicorn.conf.py` | Threads per worker                  |
+| `GUNICORN_TIMEOUT`          | `120`                 | `gunicorn.conf.py` | Worker timeout (seconds)            |
+| `GUNICORN_GRACEFUL_TIMEOUT` | `30`                  | `gunicorn.conf.py` | Graceful shutdown timeout           |
+| `GUNICORN_ACCESS_LOG`       | `-` (stdout)          | `gunicorn.conf.py` | Access log destination              |
+| `GUNICORN_ERROR_LOG`        | `-` (stderr)          | `gunicorn.conf.py` | Error log destination               |
+| `GUNICORN_LOG_LEVEL`        | `info`                | `gunicorn.conf.py` | Log verbosity                       |
 
 ---
 
-## 11. Deployment Notes
+## 11. Production Deployment
+
+### Architecture
+
+In production, the app is served by **Gunicorn** (a pre-fork WSGI server) which spawns multiple worker processes, each capable of handling concurrent requests via threads. Flask serves both the REST API and the pre-built React SPA.
+
+```
+[Client] → [Reverse Proxy (nginx/Caddy)] → [Gunicorn :8000] → [Flask App]
+                  HTTPS                        HTTP
+```
+
+### Files
+
+| File                  | Purpose                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| `gunicorn.conf.py`    | Gunicorn configuration (workers, threads, timeouts, hooks)       |
+| `start_production.sh` | One-command script: loads .env, builds frontend, starts Gunicorn |
+| `.env.example`        | Template for environment variables                               |
+| `backend/config.py`   | `ProductionConfig` class (DEBUG=False, requires SECRET_KEY)      |
+
+### Quick Start
+
+```bash
+# 1. Copy and configure environment
+cp .env.example .env
+# Edit .env — at minimum set SECRET_KEY and MYSQL_PASSWORD
+
+# 2. Generate a secret key
+python -c "import secrets; print(secrets.token_hex(32))"
+
+# 3. Start
+chmod +x start_production.sh
+./start_production.sh
+```
+
+`start_production.sh` performs these steps:
+
+1. Loads `.env` file if present.
+2. Activates the Python virtual environment (`venv/` or `.venv/`).
+3. Validates `SECRET_KEY` is set.
+4. Builds the frontend (`npm install && npm run build`).
+5. Installs Python dependencies.
+6. Starts Gunicorn with the production config.
+
+### Gunicorn Configuration
+
+All Gunicorn settings in `gunicorn.conf.py` are overridable via environment variables:
+
+| Variable                    | Default               | Description                               |
+| --------------------------- | --------------------- | ----------------------------------------- |
+| `GUNICORN_BIND`             | `0.0.0.0:8000`        | Address and port to bind                  |
+| `GUNICORN_WORKERS`          | `(CPU cores × 2) + 1` | Number of worker processes                |
+| `GUNICORN_WORKER_CLASS`     | `gthread`             | Worker type (`sync`, `gthread`, `gevent`) |
+| `GUNICORN_THREADS`          | `4`                   | Threads per worker                        |
+| `GUNICORN_TIMEOUT`          | `120`                 | Worker timeout in seconds                 |
+| `GUNICORN_GRACEFUL_TIMEOUT` | `30`                  | Graceful shutdown timeout                 |
+| `GUNICORN_KEEPALIVE`        | `5`                   | Keep-alive timeout for connections        |
+| `GUNICORN_ACCESS_LOG`       | `-` (stdout)          | Access log file path                      |
+| `GUNICORN_ERROR_LOG`        | `-` (stderr)          | Error log file path                       |
+| `GUNICORN_LOG_LEVEL`        | `info`                | Log level (debug, info, warning, error)   |
+
+**Server hooks** are configured for lifecycle logging: `on_starting`, `post_fork`, `pre_exec`, `worker_exit`.
+
+### Production Configuration Class
+
+`ProductionConfig` (in `backend/config.py`):
+
+- `DEBUG = False`
+- `SECRET_KEY` — read from environment only (no default). `init_app()` raises `RuntimeError` if not set.
+- CORS is restricted to origins listed in `CORS_ORIGINS` (comma-separated).
 
 ### Production Checklist
 
-1. **Set `SECRET_KEY`** to a strong random value.
+1. **Set `SECRET_KEY`** to a strong random value (required, enforced at startup).
 2. **Set `MYSQL_PASSWORD`** and use a non-root MySQL user.
 3. **Build the frontend**: `cd frontend && npm ci && npm run build`.
-4. **Use a WSGI server** (Gunicorn, uWSGI) instead of Flask's dev server:
-   ```bash
-   gunicorn "backend.app:create_app()" -b 0.0.0.0:5000 -w 4
-   ```
-5. **Disable debug mode** — don't pass `debug=True` in production.
-6. **Configure `MAX_UPLOAD_MB`** appropriately for expected VCF file sizes.
-7. **Set `DATA_DIR`** to a backed-up, high-availability storage location.
-8. **Set up MySQL backups** for the `patient_db` database.
-9. **Use HTTPS** via a reverse proxy (nginx, Caddy).
-10. **Consider disabling CORS** or restricting origins in production.
+4. **Configure `CORS_ORIGINS`** if the frontend is served from a different domain.
+5. **Configure `MAX_UPLOAD_MB`** appropriately for expected VCF file sizes.
+6. **Set `DATA_DIR`** to a backed-up, high-availability storage location.
+7. **Set up MySQL backups** for the `patient_db` database.
+8. **Use HTTPS** via a reverse proxy (nginx, Caddy) in front of Gunicorn.
+9. **Monitor workers** — adjust `GUNICORN_WORKERS` and `GUNICORN_THREADS` based on load.
+10. **Log to files** in production — set `GUNICORN_ACCESS_LOG` and `GUNICORN_ERROR_LOG` to file paths.
+
+### Reverse Proxy (nginx example)
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    ssl_certificate     /etc/ssl/certs/your-cert.pem;
+    ssl_certificate_key /etc/ssl/private/your-key.pem;
+
+    client_max_body_size 5000M;  # Match MAX_UPLOAD_MB
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;  # Match GUNICORN_TIMEOUT
+    }
+}
+```
 
 ### Remote Access
 
@@ -1157,6 +1315,7 @@ The system supports access from remote devices on the same network. The frontend
 | `flask-cors`       | Cross-origin resource sharing                  |
 | `pymysql`          | MySQL database driver                          |
 | `cryptography`     | Required by PyMySQL for authentication         |
+| `gunicorn`         | Production WSGI server                         |
 | `pandas`           | Data manipulation (used in seed scripts)       |
 | `pyhpo`            | Human Phenotype Ontology library (HPO refresh) |
 | `openpyxl`         | Excel file reading/writing (.xlsx)             |

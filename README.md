@@ -14,9 +14,9 @@ HA/
 │   ├── __init__.py
 │   ├── app.py               # Flask factory – serves API + built SPA
 │   ├── config.py             # MySQL & app configuration (env-var driven)
-│   ├── generate_mock_data.py # Generate 1,000 realistic mock patients for load testing
+│   ├── generate_mock_data.py # ALL mock data (20 demo + 1,000 bulk patients)
 │   ├── models.py             # SQLAlchemy models (patients, hpo_terms, singleton, trio, vcf_files, patient_hpo)
-│   ├── seed.py               # Seed script – loads HPO CSV + mock patients
+│   ├── seed.py               # Seed script – loads HPO CSV only (production-safe)
 │   └── routes/
 │       ├── __init__.py       # Blueprint registration
 │       ├── helpers.py        # Shared constants & utilities
@@ -57,8 +57,11 @@ HA/
 │           └── ManageHpo.tsx
 │
 ├── requirements.txt          # Python dependencies
-├── run.py                    # Entry-point: python run.py
+├── run.py                    # Entry-point (dev: python run.py, prod: gunicorn run:app)
+├── gunicorn.conf.py          # Gunicorn production server configuration
 ├── setup.sh                  # One-command setup script
+├── start_production.sh       # One-command production start script
+├── .env.example              # Environment variable template
 └── README.md
 ```
 
@@ -76,7 +79,8 @@ The setup script will:
 3. Create the MySQL database
 4. Create data directories (`data/`, `data/vcf/`)
 5. Install frontend dependencies and build the React/TypeScript app
-6. Seed the database with HPO terms + 20 mock patients
+6. Seed the database with HPO terms
+7. Generate 20 demo patients
 
 Then open [http://localhost:5000](http://localhost:5000).
 
@@ -121,19 +125,32 @@ npm run build
 cd ..
 ```
 
-### 5. Seed the database
+### 5. Seed the database (HPO terms)
 
 ```bash
 python -m backend.seed
 ```
 
-### 6. Run the app
+### 5b. (Optional) Generate demo patients
+
+```bash
+# 20 hand-crafted demo patients only
+python -m backend.generate_mock_data --predefined
+
+# 1,000 bulk random patients only
+python -m backend.generate_mock_data --bulk
+
+# Both (default)
+python -m backend.generate_mock_data
+```
+
+### 6. Run the app (development)
 
 ```bash
 python run.py
 ```
 
-Open [http://localhost:5000](http://localhost:5000).
+Open [http://localhost:5001](http://localhost:5001).
 
 ## Development Mode
 
@@ -148,7 +165,69 @@ cd frontend
 npm run dev
 ```
 
-Vite runs on port 3000 and proxies `/api/*` requests to Flask on port 5000.
+Vite runs on port 3000 and proxies `/api/*` requests to Flask on port 5001.
+
+## Production Deployment
+
+The production setup uses **Gunicorn** as the WSGI server with multi-worker/threaded configuration.
+
+### Quick Start (Production)
+
+```bash
+# 1. Copy and configure environment variables
+cp .env.example .env
+
+# 2. Generate a secret key
+python -c "import secrets; print(secrets.token_hex(32))"
+# Paste the output into .env as SECRET_KEY=<value>
+
+# 3. Set your MySQL password and other vars in .env
+
+# 4. Start production server
+chmod +x start_production.sh
+./start_production.sh
+```
+
+The server binds to `0.0.0.0:8000` by default, serving the built React SPA and API via Gunicorn.
+
+### Manual Production Start
+
+```bash
+# Build frontend
+cd frontend && npm ci && npm run build && cd ..
+
+# Set environment
+export FLASK_ENV=production
+export SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+
+# Start Gunicorn
+gunicorn -c gunicorn.conf.py run:app
+```
+
+### Production Configuration
+
+All Gunicorn settings are configurable via environment variables or `.env`:
+
+| Variable                    | Default               | Description                         |
+| --------------------------- | --------------------- | ----------------------------------- |
+| `GUNICORN_BIND`             | `0.0.0.0:8000`        | Address and port to bind            |
+| `GUNICORN_WORKERS`          | `(CPU cores × 2) + 1` | Number of worker processes          |
+| `GUNICORN_WORKER_CLASS`     | `gthread`             | Worker type (sync, gthread, gevent) |
+| `GUNICORN_THREADS`          | `4`                   | Threads per worker                  |
+| `GUNICORN_TIMEOUT`          | `120`                 | Worker timeout in seconds           |
+| `GUNICORN_GRACEFUL_TIMEOUT` | `30`                  | Graceful shutdown timeout           |
+| `GUNICORN_LOG_LEVEL`        | `info`                | Log level (debug, info, warning)    |
+| `CORS_ORIGINS`              | (none)                | Comma-separated allowed origins     |
+
+### Production Checklist
+
+1. Set `SECRET_KEY` to a strong random value (required)
+2. Set `MYSQL_PASSWORD` and use a non-root MySQL user
+3. Set `CORS_ORIGINS` if the frontend is served from a different domain
+4. Configure `MAX_UPLOAD_MB` for expected VCF file sizes
+5. Set `DATA_DIR` to a backed-up, high-availability storage path
+6. Put a reverse proxy (nginx, Caddy) in front for HTTPS
+7. Set up MySQL backups for the `patient_db` database
 
 ## Pages
 
@@ -249,18 +328,27 @@ The data path is configurable via the `DATA_DIR` environment variable, making it
 
 ## Mock Data Generation
 
-For load testing with a larger dataset, run the mock data generator:
+All mock data lives in `generate_mock_data.py` (seed.py is production-safe and only loads HPO terms).
 
 ```bash
 source .venv/bin/activate
+
+# 20 demo patients with hand-crafted clinical data & variants
+python -m backend.generate_mock_data --predefined
+
+# 1,000 bulk random patients for load testing
+python -m backend.generate_mock_data --bulk
+
+# Both predefined + bulk (default)
 python -m backend.generate_mock_data
 ```
 
-This creates **1,000 patients** with realistic randomized data including:
+The **predefined** set (LAB-001 … LAB-020) has curated clinical scenarios—CFTR, BRCA, Noonan, etc.  
+The **bulk** set (LAB-0100 … LAB-1099) generates randomized data including:
 
 - Names, ethnicities, case histories, and doctor references
-- Singleton and trio variants with real gene names, HGVS notation, and chromosomal positions
-- HPO term assignments per patient
+- 1–3 singleton and 0–2 trio variants with real gene names, HGVS notation, and chromosomal positions
+- 1–5 HPO term assignments per patient
 
 ## Server-Side Pagination
 

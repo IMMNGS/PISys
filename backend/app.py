@@ -1,27 +1,28 @@
 import os
+import logging
 
 import pymysql
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 
-from backend.config import Config
+from backend.config import config as config_map
 from backend.models import db
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
 
-def _ensure_databases(config_class):
+def _ensure_databases(cfg):
     """Create the MySQL database if it doesn't exist yet."""
-    user = config_class.MYSQL_USER
-    password = config_class.MYSQL_PASSWORD
-    host = config_class.MYSQL_HOST
-    port = int(config_class.MYSQL_PORT)
+    user = cfg.MYSQL_USER
+    password = cfg.MYSQL_PASSWORD
+    host = cfg.MYSQL_HOST
+    port = int(cfg.MYSQL_PORT)
 
     conn = pymysql.connect(host=host, port=port, user=user, password=password)
     try:
         with conn.cursor() as cur:
             cur.execute(
-                f"CREATE DATABASE IF NOT EXISTS `{config_class.MYSQL_DB}` "
+                f"CREATE DATABASE IF NOT EXISTS `{cfg.MYSQL_DB}` "
                 "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             )
         conn.commit()
@@ -29,8 +30,14 @@ def _ensure_databases(config_class):
         conn.close()
 
 
-def create_app(config_class=Config):
-    """Application factory."""
+def create_app(config_name="development"):
+    """Application factory.
+
+    Args:
+        config_name: one of 'development', 'production', or 'default'.
+    """
+    config_class = config_map.get(config_name, config_map["default"])
+
     app = Flask(
         __name__,
         static_folder=FRONTEND_DIST,
@@ -38,8 +45,25 @@ def create_app(config_class=Config):
     )
     app.config.from_object(config_class)
 
-    # Allow CORS for local Vite dev server
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # Run any config-specific initialisation
+    if hasattr(config_class, "init_app"):
+        config_class.init_app(app)
+
+    # Configure logging
+    if not app.debug:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+
+    # CORS — restrict in production, allow all in dev
+    if app.debug:
+        CORS(app, resources={r"/api/*": {"origins": "*"}})
+    else:
+        allowed = os.environ.get("CORS_ORIGINS", "").split(",")
+        allowed = [o.strip() for o in allowed if o.strip()]
+        if allowed:
+            CORS(app, resources={r"/api/*": {"origins": allowed}})
 
     # Initialise extensions
     db.init_app(app)
@@ -53,11 +77,9 @@ def create_app(config_class=Config):
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
     def serve_spa(path: str):
-        # If the file exists in dist/ (JS, CSS, assets), serve it
         file_path = os.path.join(FRONTEND_DIST, path)
         if path and os.path.isfile(file_path):
             return send_from_directory(FRONTEND_DIST, path)
-        # Otherwise serve index.html (React Router handles routing)
         index = os.path.join(FRONTEND_DIST, "index.html")
         if os.path.isfile(index):
             return send_from_directory(FRONTEND_DIST, "index.html")

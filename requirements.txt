@@ -7,3 +7,4 @@ pymysql
 cryptography
 openpyxl
 python-docx
+gunicorn

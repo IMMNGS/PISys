@@ -5,7 +5,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 class Config:
-    """Application configuration."""
+    """Base configuration."""
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
 
     # MySQL connection — update these for your environment
@@ -31,3 +31,31 @@ class Config:
 
     # Max upload size for VCF files (default 5000 MB)
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "5000")) * 1024 * 1024
+
+
+class DevelopmentConfig(Config):
+    """Development configuration."""
+    DEBUG = True
+
+
+class ProductionConfig(Config):
+    """Production configuration."""
+    DEBUG = False
+
+    # Override the default secret key — require it from the environment
+    SECRET_KEY = os.environ.get("SECRET_KEY")
+
+    @classmethod
+    def init_app(cls, app):
+        if not cls.SECRET_KEY:
+            raise RuntimeError(
+                "SECRET_KEY environment variable must be set in production"
+            )
+
+
+# Map of config names to classes
+config = {
+    "development": DevelopmentConfig,
+    "production": ProductionConfig,
+    "default": DevelopmentConfig,
+}
