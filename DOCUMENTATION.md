@@ -1,7 +1,7 @@
 # Patient Information System — Full Codebase Documentation
 
-> **Version:** 1.1.0  
-> **Last Updated:** February 11, 2026  
+> **Version:** 1.2.0  
+> **Last Updated:** February 24, 2026  
 > **Stack:** Python 3 / Flask / SQLAlchemy (backend) · TypeScript / React / Vite (frontend) · MySQL (database)
 
 ---
@@ -594,10 +594,27 @@ Defines the `ALL_BLUEPRINTS` list and the `register_blueprints(app, url_prefix="
 
 ### 6.8 Shared Helpers — `backend/routes/helpers.py`
 
-**Functions:**
+**Serialisation:**
 
 - **`_patient_to_dict(patient, ...)`** — wrapper around `Patient.to_dict()` that forwards inclusion flags.
-- **`_parse_xlsx_rows(file_storage)`** — reads an `.xlsx` file from a Flask `FileStorage` object using `openpyxl`, normalizes header names (lowercase, spaces → underscores), and returns a list of dicts.
+
+**XLSX Parsing:**
+
+- **`_parse_xlsx_rows(file_storage)`** — reads an `.xlsx` file from a Flask `FileStorage` object using `openpyxl`. Uses `auto_map_columns()` to fuzzy-match Excel column headers to DB field names, then falls back to simple lowercased/underscore-normalised names. Returns a list of dicts.
+- **`_parse_variant_xlsx_rows(file_storage)`** — reads a singleton/trio variant XLSX file. Automatically detects whether the header row is row 0 or row 1 (some variant files have a title row). Uses `auto_map_variant_columns()` for column mapping. Returns a list of dicts.
+
+**Validation:**
+
+- **`validate_lab_number(lab_number)`** — validates lab number format against two patterns: `IM###` (3–6 digits) and `XX##XXX` (2-digit + 2-char + 3–6 digits). Returns `True` / `False`.
+
+**Field Metadata:**
+
+- **`get_available_patient_fields()`** — returns a dict mapping every patient DB field name to a human-readable label. Single source of truth for the column-mapping UI.
+
+**Auto-Mapping:**
+
+- **`auto_map_columns(excel_columns, available_fields)`** — maps Excel column names to patient DB field names using two passes: (1) exact / case-insensitive match against a curated variations dict, (2) fuzzy matching via `SequenceMatcher` with a 0.6 threshold. Handles common hospital-specific header names like `"Lab. no."`, `"Sample collection date"`, `"Requesting Dr."`, etc.
+- **`auto_map_variant_columns(excel_columns)`** — same approach for variant-specific columns (`"Reportable Variant"`, `"Gene Names"`, `"HGVS c. (Clinically Relevant)"`, etc.).
 
 **Constants:**
 
@@ -605,6 +622,8 @@ Defines the `ALL_BLUEPRINTS` list and the `register_blueprints(app, url_prefix="
 - `SINGLETON_FIELDS` — tuple of all singleton variant column names.
 - `TRIO_FIELDS` — tuple of all trio variant column names.
 - `DATE_FIELDS` — set of field names that should be parsed as dates (`dob`, `report_date`, `specimen_collected`, `specimen_arrived`).
+- `_PATIENT_FIELD_VARIATIONS` — internal dict mapping DB field names to lists of known Excel header variations.
+- `_VARIANT_FIELD_VARIATIONS` — internal dict mapping variant DB field names to known Excel header variations.
 
 ### 6.9 HPO Term Routes — `backend/routes/hpo_terms.py`
 
@@ -690,34 +709,72 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 - Returns full patient records (with all nested data) for the specified IDs.
 - Used by the frontend's "Extract Selected" feature.
 
+#### Update Findings / Report Date
+
+| Method | Endpoint                                                   | Handler                           | Description                          |
+| ------ | ---------------------------------------------------------- | --------------------------------- | ------------------------------------ |
+| PUT    | `/api/patients/<patient_id>/findings`                      | `update_findings`                 | Update `type_of_findings` only       |
+| PUT    | `/api/patients/<patient_id>/findings_and_report_date`      | `update_findings_and_report_date` | Update findings + report_date        |
+| GET    | `/api/patients/fields`                                     | `get_patient_fields_route`        | Field metadata for column-mapping UI |
+
+**`PUT /api/patients/<patient_id>/findings`**
+
+- Body: `{ "type_of_findings": "C" }`
+- Updates only the `type_of_findings` field. Returns fully serialised patient.
+
+**`PUT /api/patients/<patient_id>/findings_and_report_date`**
+
+- Body: `{ "type_of_findings": "C", "report_date": "2025-03-15" }`
+- Atomically updates both fields. Returns fully serialised patient.
+
+**`GET /api/patients/fields`**
+
+- Returns `{ success: true, fields: { lab_number: "Lab Number (Required)", ... } }`.
+- Used by the frontend to build a dynamic column-mapping UI for XLSX imports.
+
 ### 6.11 Singleton Routes — `backend/routes/singletons.py`
 
 **Blueprint:** `singletons_bp` (name: `"singletons"`)
 
-| Method | Endpoint                                      | Handler                  | Description                       |
-| ------ | --------------------------------------------- | ------------------------ | --------------------------------- |
-| GET    | `/api/patients/<patient_id>/singletons`       | `get_patient_singletons` | List all singletons for a patient |
-| POST   | `/api/patients/<patient_id>/singletons`       | `create_singleton`       | Create a singleton (JSON body)    |
-| GET    | `/api/singletons/<singleton_id>`              | `get_singleton`          | Get a singleton by ID             |
-| PUT    | `/api/singletons/<singleton_id>`              | `update_singleton`       | Update a singleton (JSON body)    |
-| DELETE | `/api/singletons/<singleton_id>`              | `delete_singleton`       | Delete a singleton                |
-| POST   | `/api/patients/<patient_id>/upload/singleton` | `upload_singleton_xlsx`  | Import singletons from XLSX       |
+| Method | Endpoint                                      | Handler                  | Description                                        |
+| ------ | --------------------------------------------- | ------------------------ | -------------------------------------------------- |
+| GET    | `/api/patients/<patient_id>/singletons`       | `list_singletons`        | List singletons (optional `?reportable_variant=C`) |
+| POST   | `/api/patients/<patient_id>/singletons`       | `create_singleton`       | Create a singleton (JSON body)                     |
+| PUT    | `/api/singletons/<singleton_id>`              | `update_singleton`       | Update a singleton (JSON body)                     |
+| DELETE | `/api/singletons/<singleton_id>`              | `delete_singleton`       | Delete a singleton                                 |
+| POST   | `/api/patients/<patient_id>/upload/singleton` | `upload_singleton_xlsx`  | Import singletons from XLSX                        |
 
-**XLSX Import:** Column headers should match model fields (case-insensitive, spaces → underscores). Unrecognized columns are silently ignored. All rows create new records.
+**`GET /api/patients/<patient_id>/singletons`**
+
+- Optional query param `reportable_variant` filters by variant type (e.g., `C`, `A`, `I`).
+- Returns `SingletonInfo[]` ordered by ID.
+
+**`POST /api/patients/<patient_id>/singletons`**
+
+- Body: JSON with any subset of `SINGLETON_FIELDS` (see helpers).
+- The `igv_review` field accepts `true`/`false` strings which are coerced to booleans.
+- Returns the created `SingletonInfo` with HTTP 201.
+
+**XLSX Import (`POST .../upload/singleton`):**
+
+- Accepts `.xlsx` / `.xls` files via multipart form.
+- Column headers are fuzzy-matched to DB fields via `auto_map_variant_columns()` — handles names like `"Gene Names"`, `"HGVS c. (Clinically Relevant)"`, `"Second review and comment on reportable variant "`, etc.
+- Rows with only `None` / NaN values are skipped.
+- Returns `{ message, count }` with HTTP 201.
 
 ### 6.12 Trio Routes — `backend/routes/trios.py`
 
 **Blueprint:** `trios_bp` (name: `"trios"`)
 
-| Method | Endpoint                                 | Handler             | Description                  |
-| ------ | ---------------------------------------- | ------------------- | ---------------------------- |
-| GET    | `/api/patients/<patient_id>/trios`       | `get_patient_trios` | List all trios for a patient |
-| POST   | `/api/patients/<patient_id>/trios`       | `create_trio`       | Create a trio (JSON body)    |
-| PUT    | `/api/trios/<trio_id>`                   | `update_trio`       | Update a trio (JSON body)    |
-| DELETE | `/api/trios/<trio_id>`                   | `delete_trio`       | Delete a trio                |
-| POST   | `/api/patients/<patient_id>/upload/trio` | `upload_trio_xlsx`  | Import trios from XLSX       |
+| Method | Endpoint                                 | Handler            | Description                                   |
+| ------ | ---------------------------------------- | ------------------ | --------------------------------------------- |
+| GET    | `/api/patients/<patient_id>/trios`       | `list_trios`       | List trios (optional `?reportable_variant=C`) |
+| POST   | `/api/patients/<patient_id>/trios`       | `create_trio`      | Create a trio (JSON body)                     |
+| PUT    | `/api/trios/<trio_id>`                   | `update_trio`      | Update a trio (JSON body)                     |
+| DELETE | `/api/trios/<trio_id>`                   | `delete_trio`      | Delete a trio                                 |
+| POST   | `/api/patients/<patient_id>/upload/trio` | `upload_trio_xlsx` | Import trios from XLSX                        |
 
-Mirrors the singleton routes with identical structure and XLSX import behavior.
+Mirrors the singleton routes with identical structure and XLSX import behavior. Includes the same `reportable_variant` query filter and fuzzy column mapping.
 
 ### 6.13 VCF Routes — `backend/routes/vcf.py`
 
@@ -749,10 +806,10 @@ Mirrors the singleton routes with identical structure and XLSX import behavior.
 
 **Blueprint:** `reports_bp` (name: `"reports"`)
 
-| Method | Endpoint               | Handler           | Description                          |
-| ------ | ---------------------- | ----------------- | ------------------------------------ |
-| POST   | `/api/report/preview`  | `preview_report`  | Get report data for frontend preview |
-| POST   | `/api/report/generate` | `generate_report` | Generate and download .docx report   |
+| Method | Endpoint               | Handler            | Description                          |
+| ------ | ---------------------- | ------------------ | ------------------------------------ |
+| POST   | `/api/report/preview`  | `report_preview`   | Get report data for frontend preview |
+| POST   | `/api/report/generate` | `generate_report`  | Generate and download .docx report   |
 
 **`POST /api/report/preview`**
 
@@ -772,7 +829,7 @@ Returns:
 }
 ```
 
-The `defaults` provide pre-filled text for the test process description, disclaimer, and references sections.
+The `defaults` provide pre-filled text for the test process description, disclaimer, and references sections. The `variants` array contains singleton or trio records depending on `test_type`.
 
 **`POST /api/report/generate`**
 
@@ -789,23 +846,42 @@ Body:
 }
 ```
 
-Generates a `.docx` document using `python-docx` with the following sections:
+Generates a full clinical `.docx` document using `python-docx` matching the Immunological Disorders SuperPanel report format. The document sections are:
 
-1. **Patient Identity** — Name, Sex/Age, HKID.
-2. **Testing Information** — Case history, type of test, specimen collected date.
-3. **Result Table** — Columns: Gene Name/OMIM, HGVS transcript/variant, Exon, Zygosity, Inheritance, Parent Origin, Classification, Position REF/ALT, Assembly (GRCh38/hg38), SNP Identifier, Phenotype.
-4. **Conclusion** — User-provided text.
-5. **Test Process** — Editable description (defaults provided).
-6. **Disclaimer** — Editable legal text.
-7. **References** — Editable citations.
+1. **Report Date & Patient Demographics** — Report date, lab numbers, name, HKID, DOB, sex, age, ethnicity, specimen dates.
+2. **Separator Line** — visual delimiter.
+3. **Clinical Summary** — Specimen type, clinical history, testing requested, test description, summary of results.
+4. **Results Table** — Confirmed (C) variant findings in a formatted table: Gene, HGVS c., HGVS p., Exon, Zygosity, Inheritance, Classification, OMIM ID, RSID. Trio reports include an "Inherited From" column.
+5. **Additional Findings** (type A) — separate table and interpretation text.
+6. **Editable Sections** — Comments, Variant Classification (blank for manual entry).
+7. **Appendix** — Incidental findings (type I) with interpretation text.
+8. **QC Metrics** — Sequencing Performance Metrics table (Immunological Disorders SuperPanel, 554 genes, 15,798 exons, 2,359,627 bases).
+9. **Target Region & Gene List** — Full 554-gene list with coverage footnotes and panel description.
+10. **Methods** — Eight underlined subsections: Laboratory process, Bioinformatics and quality control, Interpretation, Variant classification, Databases, Confirmation of sequence alterations, Analytic validation, Assay limitations.
+11. **Disclaimers** — Six numbered disclaimers covering legal, clinical, and technical limitations.
+12. **Signatures** — Reported By / Signed Out By with named physicians.
+13. **End of Report** marker.
 
-Returns the `.docx` as a downloadable attachment named `report_<lab_number>.docx`.
+Returns the `.docx` as a downloadable attachment named `report_<lab_number>_<im_lab_number>.docx`.
 
-**Default text constants:**
+**Key helper functions:**
 
-- `DEFAULT_TEST_PROCESS` — describes the sequencing methodology (panel, pipeline, reference genome).
-- `DEFAULT_DISCLAIMER` — describes test limitations (SNVs, indels, structural variants).
-- `DEFAULT_REFERENCES` — default citation(s).
+- `get_test_description(test_type)` — returns the panel test description blurb, appending "Trio analysis was performed" when `test_type == "trio"`.
+- `get_summary_result(patient)` — generates summary text from the patient's `type_of_findings` and variant data:
+  - `C` → counts confirmed variants and names the gene(s).
+  - `A` → "No disease-causing variant detected... additional findings included."
+  - `I` / `N` → "No disease-causing variant detected."
+- `_build_variant_table(doc, variants, include_inherited_from)` — inserts a formatted variant table.
+- `_build_qc_table(doc)` — inserts the QC metrics table.
+- `create_word_document(patient, test_type)` — orchestrates the full document generation, returns a `BytesIO` buffer.
+
+**Static text constants (module-level):**
+
+- `GENE_LIST` — all 554 panel genes with `*` and `#` annotations.
+- `PANEL_DESCRIPTION` — panel scope and limitations.
+- `GENE_FOOTNOTE` — explanation of `*` and `#` annotations.
+- `METHODS_SECTIONS` — dict of eight method subsection texts.
+- `DISCLAIMERS` — list of six disclaimer strings.
 
 ---
 
@@ -1091,12 +1167,16 @@ POST   /api/hpo_terms/refresh              → { message, added, updated }
 GET    /api/patients                        → PatientInfo[]
 GET    /api/patients/options                → { items: [{id, lab_number, name}], total }
 GET    /api/patients/list                   → { items: PatientInfo[], total }
+GET    /api/patients/filter_options          → { sex, type_of_test, hpo_terms }
+GET    /api/patients/fields                 → { success, fields }
 GET    /api/patients/:id                    → PatientInfo (full)
 POST   /api/patients                        → PatientInfo (201)
 PUT    /api/patients/:id                    → PatientInfo
 DELETE /api/patients/:id                    → { message }
 POST   /api/patients/upload                 → { message, added, skipped } (201)
 POST   /api/patients/selected               → PatientInfo[] (full)
+PUT    /api/patients/:id/findings            → PatientInfo
+PUT    /api/patients/:id/findings_and_report_date → PatientInfo
 ```
 
 #### Patient HPO Terms
@@ -1110,9 +1190,8 @@ DELETE /api/patients/:id/hpo_terms/:termId  → { message }
 #### Singleton Variants
 
 ```
-GET    /api/patients/:id/singletons         → SingletonInfo[]
+GET    /api/patients/:id/singletons         → SingletonInfo[]  (?reportable_variant=C)
 POST   /api/patients/:id/singletons         → SingletonInfo (201)
-GET    /api/singletons/:id                  → SingletonInfo
 PUT    /api/singletons/:id                  → SingletonInfo
 DELETE /api/singletons/:id                  → { message }
 POST   /api/patients/:id/upload/singleton   → { message, count } (201)
@@ -1121,7 +1200,7 @@ POST   /api/patients/:id/upload/singleton   → { message, count } (201)
 #### Trio Variants
 
 ```
-GET    /api/patients/:id/trios              → TrioInfo[]
+GET    /api/patients/:id/trios              → TrioInfo[]  (?reportable_variant=C)
 POST   /api/patients/:id/trios              → TrioInfo (201)
 PUT    /api/trios/:id                       → TrioInfo
 DELETE /api/trios/:id                       → { message }

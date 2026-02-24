@@ -95,6 +95,7 @@ export interface PatientListFilters {
   sex?: string;
   age?: string;
   type_of_test?: string;
+  hpo_term_ids?: string;
 }
 
 export function fetchPatientList(
@@ -110,6 +111,16 @@ export function fetchPatientList(
     if (v) params.set(k, v);
   }
   return json(`${BASE}/patients/list?${params}`);
+}
+
+export interface FilterOptions {
+  sex: string[];
+  type_of_test: string[];
+  hpo_terms: { id: number; hpo_id: string; term_name: string }[];
+}
+
+export function fetchFilterOptions(): Promise<FilterOptions> {
+  return json(`${BASE}/patients/filter_options`);
 }
 
 export function fetchPatient(id: number): Promise<PatientInfo> {

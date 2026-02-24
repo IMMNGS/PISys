@@ -1,8 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
-import { fetchPatientList, fetchSelectedPatients } from "../api/client";
+import {
+  fetchPatientList,
+  fetchSelectedPatients,
+  fetchFilterOptions,
+} from "../api/client";
 import type { PatientInfo } from "../types";
-import type { PatientListFilters } from "../api/client";
+import type { PatientListFilters, FilterOptions } from "../api/client";
+import DropdownSelect from "../components/DropdownSelect";
+import type { DropdownItem } from "../components/DropdownSelect";
 
 /* ── Tab definitions for the code-guide panel ─────────────────────────── */
 type ToolTab = "python" | "r" | "curl" | "sql";
@@ -149,6 +155,7 @@ interface Filters {
   sex: string;
   age: string;
   type_of_test: string;
+  hpo_term_ids: string;
 }
 
 const emptyFilters: Filters = {
@@ -158,6 +165,7 @@ const emptyFilters: Filters = {
   sex: "",
   age: "",
   type_of_test: "",
+  hpo_term_ids: "",
 };
 
 const PAGE_SIZE = 20;
@@ -175,6 +183,35 @@ export default function SelectPatients() {
   const [loadingMore, setLoadingMore] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Dropdown filter options
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    sex: [],
+    type_of_test: [],
+    hpo_terms: [],
+  });
+  const [selectedSex, setSelectedSex] = useState<Set<number>>(new Set());
+  const [selectedTest, setSelectedTest] = useState<Set<number>>(new Set());
+  const [selectedHpo, setSelectedHpo] = useState<Set<number>>(new Set());
+
+  // Load filter options once
+  useEffect(() => {
+    fetchFilterOptions().then(setFilterOptions);
+  }, []);
+
+  // Build dropdown items from filterOptions
+  const sexItems: DropdownItem[] = filterOptions.sex.map((s, i) => ({
+    id: i,
+    label: s,
+  }));
+  const testItems: DropdownItem[] = filterOptions.type_of_test.map((t, i) => ({
+    id: i,
+    label: t,
+  }));
+  const hpoItems: DropdownItem[] = filterOptions.hpo_terms.map((h) => ({
+    id: h.id,
+    label: `${h.hpo_id} — ${h.term_name}`,
+  }));
+
   const loadPatients = useCallback(
     async (f: Filters, offset = 0, limit = PAGE_SIZE, append = false) => {
       const apiFilters: PatientListFilters = {};
@@ -184,6 +221,7 @@ export default function SelectPatients() {
       if (f.sex) apiFilters.sex = f.sex;
       if (f.age) apiFilters.age = f.age;
       if (f.type_of_test) apiFilters.type_of_test = f.type_of_test;
+      if (f.hpo_term_ids) apiFilters.hpo_term_ids = f.hpo_term_ids;
 
       if (append) {
         setLoadingMore(true);
@@ -223,7 +261,57 @@ export default function SelectPatients() {
 
   const clearFilters = () => {
     setFilters(emptyFilters);
+    setSelectedSex(new Set());
+    setSelectedTest(new Set());
+    setSelectedHpo(new Set());
     loadPatients(emptyFilters);
+  };
+
+  // Dropdown toggle helpers
+  const toggleSex = (id: number) => {
+    setSelectedSex((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      // Build comma-separated sex values for API
+      const labels = [...next]
+        .map((i) => sexItems.find((s) => s.id === i)?.label)
+        .filter(Boolean)
+        .join(",");
+      const nextFilters = { ...filters, sex: labels };
+      setFilters(nextFilters);
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => loadPatients(nextFilters), 300);
+      return next;
+    });
+  };
+
+  const toggleTest = (id: number) => {
+    setSelectedTest((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      const labels = [...next]
+        .map((i) => testItems.find((t) => t.id === i)?.label)
+        .filter(Boolean)
+        .join(",");
+      const nextFilters = { ...filters, type_of_test: labels };
+      setFilters(nextFilters);
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => loadPatients(nextFilters), 300);
+      return next;
+    });
+  };
+
+  const toggleHpo = (id: number) => {
+    setSelectedHpo((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      const ids = [...next].join(",");
+      const nextFilters = { ...filters, hpo_term_ids: ids };
+      setFilters(nextFilters);
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => loadPatients(nextFilters), 300);
+      return next;
+    });
   };
 
   const remaining = total - patients.length;
@@ -284,6 +372,7 @@ export default function SelectPatients() {
               <th>Sex</th>
               <th>Age</th>
               <th>Test Type</th>
+              <th>HPO Terms</th>
               <th />
             </tr>
             <tr className="filter-row">
@@ -313,11 +402,11 @@ export default function SelectPatients() {
                 />
               </th>
               <th>
-                <input
-                  type="text"
-                  placeholder="Filter…"
-                  value={filters.sex}
-                  onChange={(e) => setFilter("sex", e.target.value)}
+                <DropdownSelect
+                  items={sexItems}
+                  placeholder="All"
+                  selectedIds={selectedSex}
+                  onToggle={toggleSex}
                 />
               </th>
               <th>
@@ -329,11 +418,19 @@ export default function SelectPatients() {
                 />
               </th>
               <th>
-                <input
-                  type="text"
-                  placeholder="Filter…"
-                  value={filters.type_of_test}
-                  onChange={(e) => setFilter("type_of_test", e.target.value)}
+                <DropdownSelect
+                  items={testItems}
+                  placeholder="All"
+                  selectedIds={selectedTest}
+                  onToggle={toggleTest}
+                />
+              </th>
+              <th>
+                <DropdownSelect
+                  items={hpoItems}
+                  placeholder="All"
+                  selectedIds={selectedHpo}
+                  onToggle={toggleHpo}
                 />
               </th>
               <th>
@@ -350,13 +447,13 @@ export default function SelectPatients() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="text-center text-muted">
+                <td colSpan={9} className="text-center text-muted">
                   Loading…
                 </td>
               </tr>
             ) : patients.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center text-muted">
+                <td colSpan={9} className="text-center text-muted">
                   No patients match the current filters.
                 </td>
               </tr>
@@ -385,6 +482,19 @@ export default function SelectPatients() {
                     {p.age != null ? `${p.age} ${p.age_unit ?? ""}` : "—"}
                   </td>
                   <td>{p.type_of_test ?? "—"}</td>
+                  <td>
+                    {p.hpo_terms && p.hpo_terms.length > 0
+                      ? p.hpo_terms.map((t) => (
+                          <span
+                            className="badge"
+                            key={t.id}
+                            title={t.term_name}
+                          >
+                            {t.hpo_id}
+                          </span>
+                        ))
+                      : "—"}
+                  </td>
                   <td />
                 </tr>
               ))

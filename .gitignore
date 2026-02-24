@@ -16,6 +16,7 @@ env/
 # Data & test
 test/
 data/*
+frontend/src/__tests__
 
 # OS files
 .DS_Store
@@ -28,3 +29,6 @@ Thumbs.db
 # Environment
 .env
 *.log
+
+# Misc
+backend/routes/patient_info

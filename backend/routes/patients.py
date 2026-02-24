@@ -2,10 +2,12 @@
 
 from flask import Blueprint, abort, jsonify, request
 
-from backend.models import db, HPOTerm, Patient
+from backend.models import db, HPOTerm, Patient, patient_hpo
 from backend.routes.helpers import (
     _patient_to_dict, _parse_xlsx_rows,
     PATIENT_FIELDS, DATE_FIELDS,
+    validate_lab_number, get_available_patient_fields,
+    auto_map_columns,
 )
 
 patients_bp = Blueprint("patients", __name__)
@@ -92,10 +94,26 @@ def get_patient_list():
         except ValueError:
             pass  # ignore non-numeric age filter
 
+    # HPO term filter — only show patients that have ALL selected HPO terms
+    hpo_ids = request.args.get("hpo_term_ids", "").strip()
+    if hpo_ids:
+        try:
+            id_list = [int(x) for x in hpo_ids.split(",") if x.strip()]
+        except ValueError:
+            id_list = []
+        for hpo_id in id_list:
+            query = query.filter(
+                Patient.id.in_(
+                    db.session.query(patient_hpo.c.patient_id).filter(
+                        patient_hpo.c.hpo_term_id == hpo_id
+                    )
+                )
+            )
+
     query = query.order_by(Patient.id)
     total = query.count()
     patients = query.offset(offset).limit(limit).all()
-    items = [p.to_dict(include_hpo=False) for p in patients]
+    items = [p.to_dict(include_hpo=True) for p in patients]
     return jsonify({"items": items, "total": total})
 
 
@@ -105,6 +123,32 @@ def get_patient(patient_id):
     if not patient:
         abort(404)
     return jsonify(_patient_to_dict(patient, **_FULL))
+
+
+@patients_bp.route("/patients/filter_options", methods=["GET"])
+def get_filter_options():
+    """Return distinct values for dropdown filters.
+    Returns {sex: [...], type_of_test: [...], hpo_terms: [{id, hpo_id, term_name}, ...]}."""
+    sex_values = sorted([
+        r[0] for r in
+        db.session.query(Patient.sex).filter(Patient.sex.isnot(None), Patient.sex != "").distinct().all()
+    ])
+    test_values = sorted([
+        r[0] for r in
+        db.session.query(Patient.type_of_test).filter(
+            Patient.type_of_test.isnot(None), Patient.type_of_test != ""
+        ).distinct().all()
+    ])
+    # Only HPO terms that are actually assigned to at least one patient
+    hpo_terms = (
+        db.session.query(HPOTerm)
+        .join(patient_hpo, HPOTerm.id == patient_hpo.c.hpo_term_id)
+        .distinct()
+        .order_by(HPOTerm.hpo_id)
+        .all()
+    )
+    hpo_list = [{"id": t.id, "hpo_id": t.hpo_id, "term_name": t.term_name} for t in hpo_terms]
+    return jsonify({"sex": sex_values, "type_of_test": test_values, "hpo_terms": hpo_list})
 
 
 @patients_bp.route("/patients", methods=["POST"])
@@ -274,3 +318,62 @@ def get_selected_patients():
     ids = data.get("patient_ids", [])
     patients = Patient.query.filter(Patient.id.in_(ids)).all()
     return jsonify([_patient_to_dict(p, **_FULL) for p in patients])
+
+
+# ── Update findings / report-date ────────────────────────────────────────
+
+@patients_bp.route("/patients/<int:patient_id>/findings", methods=["PUT"])
+def update_findings(patient_id):
+    """Update only the type_of_findings field on a patient.
+
+    Body: { "type_of_findings": "C" }
+    """
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
+    data = request.get_json()
+    findings = data.get("type_of_findings")
+    if findings is None:
+        return jsonify({"error": "type_of_findings is required"}), 400
+    patient.type_of_findings = findings
+    db.session.commit()
+    return jsonify(_patient_to_dict(patient, **_FULL))
+
+
+@patients_bp.route(
+    "/patients/<int:patient_id>/findings_and_report_date", methods=["PUT"]
+)
+def update_findings_and_report_date(patient_id):
+    """Update type_of_findings *and* report_date in one request.
+
+    Body: { "type_of_findings": "C", "report_date": "2025-03-15" }
+    """
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        abort(404)
+    data = request.get_json()
+    if "type_of_findings" in data:
+        patient.type_of_findings = data["type_of_findings"]
+    if "report_date" in data and data["report_date"]:
+        try:
+            from datetime import date as _date
+            patient.report_date = _date.fromisoformat(str(data["report_date"])[:10])
+        except ValueError:
+            pass
+    db.session.commit()
+    return jsonify(_patient_to_dict(patient, **_FULL))
+
+
+# ── Patient field metadata (for dynamic frontend column mapping UI) ──────
+
+@patients_bp.route("/patients/fields", methods=["GET"])
+def get_patient_fields_route():
+    """Return available database fields for patient data mapping.
+
+    Useful for the frontend to build the column-mapping UI when importing
+    XLSX files.
+    """
+    return jsonify({
+        "success": True,
+        "fields": get_available_patient_fields(),
+    })
