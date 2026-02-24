@@ -711,11 +711,11 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 
 #### Update Findings / Report Date
 
-| Method | Endpoint                                                   | Handler                           | Description                          |
-| ------ | ---------------------------------------------------------- | --------------------------------- | ------------------------------------ |
-| PUT    | `/api/patients/<patient_id>/findings`                      | `update_findings`                 | Update `type_of_findings` only       |
-| PUT    | `/api/patients/<patient_id>/findings_and_report_date`      | `update_findings_and_report_date` | Update findings + report_date        |
-| GET    | `/api/patients/fields`                                     | `get_patient_fields_route`        | Field metadata for column-mapping UI |
+| Method | Endpoint                                              | Handler                           | Description                          |
+| ------ | ----------------------------------------------------- | --------------------------------- | ------------------------------------ |
+| PUT    | `/api/patients/<patient_id>/findings`                 | `update_findings`                 | Update `type_of_findings` only       |
+| PUT    | `/api/patients/<patient_id>/findings_and_report_date` | `update_findings_and_report_date` | Update findings + report_date        |
+| GET    | `/api/patients/fields`                                | `get_patient_fields_route`        | Field metadata for column-mapping UI |
 
 **`PUT /api/patients/<patient_id>/findings`**
 
@@ -736,13 +736,13 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 
 **Blueprint:** `singletons_bp` (name: `"singletons"`)
 
-| Method | Endpoint                                      | Handler                  | Description                                        |
-| ------ | --------------------------------------------- | ------------------------ | -------------------------------------------------- |
-| GET    | `/api/patients/<patient_id>/singletons`       | `list_singletons`        | List singletons (optional `?reportable_variant=C`) |
-| POST   | `/api/patients/<patient_id>/singletons`       | `create_singleton`       | Create a singleton (JSON body)                     |
-| PUT    | `/api/singletons/<singleton_id>`              | `update_singleton`       | Update a singleton (JSON body)                     |
-| DELETE | `/api/singletons/<singleton_id>`              | `delete_singleton`       | Delete a singleton                                 |
-| POST   | `/api/patients/<patient_id>/upload/singleton` | `upload_singleton_xlsx`  | Import singletons from XLSX                        |
+| Method | Endpoint                                      | Handler                 | Description                                        |
+| ------ | --------------------------------------------- | ----------------------- | -------------------------------------------------- |
+| GET    | `/api/patients/<patient_id>/singletons`       | `list_singletons`       | List singletons (optional `?reportable_variant=C`) |
+| POST   | `/api/patients/<patient_id>/singletons`       | `create_singleton`      | Create a singleton (JSON body)                     |
+| PUT    | `/api/singletons/<singleton_id>`              | `update_singleton`      | Update a singleton (JSON body)                     |
+| DELETE | `/api/singletons/<singleton_id>`              | `delete_singleton`      | Delete a singleton                                 |
+| POST   | `/api/patients/<patient_id>/upload/singleton` | `upload_singleton_xlsx` | Import singletons from XLSX                        |
 
 **`GET /api/patients/<patient_id>/singletons`**
 
@@ -806,10 +806,10 @@ Mirrors the singleton routes with identical structure and XLSX import behavior. 
 
 **Blueprint:** `reports_bp` (name: `"reports"`)
 
-| Method | Endpoint               | Handler            | Description                          |
-| ------ | ---------------------- | ------------------ | ------------------------------------ |
-| POST   | `/api/report/preview`  | `report_preview`   | Get report data for frontend preview |
-| POST   | `/api/report/generate` | `generate_report`  | Generate and download .docx report   |
+| Method | Endpoint               | Handler           | Description                          |
+| ------ | ---------------------- | ----------------- | ------------------------------------ |
+| POST   | `/api/report/preview`  | `report_preview`  | Get report data for frontend preview |
+| POST   | `/api/report/generate` | `generate_report` | Generate and download .docx report   |
 
 **`POST /api/report/preview`**
 
