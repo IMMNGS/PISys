@@ -66,8 +66,8 @@ HA/
 ## Quick Start
 
 ```bash
-chmod +x setup.sh
-./setup.sh
+chmod +x run.sh
+bash run.sh setup
 ```
 
 The setup script will:
@@ -176,8 +176,8 @@ python -c "import secrets; print(secrets.token_hex(32))"
 # 3. Set your MySQL password and other vars in .env
 
 # 4. Start production server
-chmod +x start_production.sh
-./start_production.sh
+chmod +x run.sh
+bash run.sh production
 ```
 
 The server binds to `0.0.0.0:8000` by default, serving the built React SPA and API via Gunicorn.

@@ -86,8 +86,7 @@ The Patient Information System is a full-stack web application for managing pati
 HA/
 ├── run.py                        # Application entry-point
 ├── gunicorn.conf.py              # Gunicorn production configuration
-├── setup.sh                      # One-command full setup script
-├── start_production.sh           # One-command production start script
+├── run.sh                        # Unified setup/start script (setup|development|production)
 ├── .env.example                  # Environment variable template
 ├── requirements.txt              # Python dependencies
 ├── README.md                     # Project README
@@ -153,19 +152,18 @@ HA/
 ### Automated Setup
 
 ```bash
-chmod +x setup.sh
-./setup.sh
+# First-time setup (creates venv, installs deps, builds frontend)
+bash run.sh setup
 ```
 
-The `setup.sh` script performs the following steps:
+The `run.sh setup` step performs the following steps:
 
 1. **Prerequisite check** — verifies Python 3, pip, Node.js, npm, and MySQL CLI are available.
 2. **Virtual environment** — creates/activates a `.venv` directory.
 3. **Python dependencies** — `pip install -r requirements.txt`.
-4. **MySQL database** — creates the `patient_db` database (or the database named by `MYSQL_DB`).
+4. **MySQL database** — creates the `patient_db` database (or the database named by `MYSQL_DB`) when `mysql` CLI is present.
 5. **Data directories** — creates `data/` and `data/vcf/`.
 6. **Frontend build** — runs `npm install && npm run build` in `frontend/`.
-7. **(removed)** — seeding and mock data generation have been removed. Load HPO terms from the Manage HPO page or via `POST /api/hpo_terms/refresh`. Upload patient data via the Upload page or sample files in `data/sample/`.
 
 After setup, start the server:
 
@@ -219,9 +217,8 @@ cp .env.example .env
 # 2. Generate a secret key
 python -c "import secrets; print(secrets.token_hex(32))"
 
-# 3. Start production server
-chmod +x start_production.sh
-./start_production.sh
+# 3. Start production server (builds frontend and does one-time HPO load)
+bash run.sh production
 ```
 
 Or manually:

@@ -1,6 +1,6 @@
 import os
 
-# Project root (one level up from backend/)
+# Project root
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -25,7 +25,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Data directory — local by default, can point to a remote mount / S3-fuse
-    # path in the future via DATA_DIR env var.
+    # Define path DATA_DIR env var.
     DATA_DIR = os.environ.get("DATA_DIR", os.path.join(_PROJECT_ROOT, "data"))
     VCF_DIR = os.path.join(DATA_DIR, "vcf")
 
