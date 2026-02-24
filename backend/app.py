@@ -38,11 +38,10 @@ def create_app(config_name="development"):
     """
     config_class = config_map.get(config_name, config_map["default"])
 
-    app = Flask(
-        __name__,
-        static_folder=FRONTEND_DIST,
-        static_url_path="",
-    )
+    # Disable Flask's automatic static file handling so that requests
+    # for unknown paths (e.g. SPA routes like /patients/123) are routed
+    # to the `serve_spa` view which will return `index.html`.
+    app = Flask(__name__, static_folder=None)
     app.config.from_object(config_class)
 
     # Run any config-specific initialisation
