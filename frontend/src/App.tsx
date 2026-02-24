@@ -22,7 +22,7 @@ export default function App() {
         </Routes>
       </main>
       <footer>
-        <small>Patient Information System &copy; 2026</small>
+        <small>Patient Information System © 2026</small>
       </footer>
     </BrowserRouter>
   );

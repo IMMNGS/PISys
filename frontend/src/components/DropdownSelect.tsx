@@ -3,6 +3,8 @@ import { useState, useRef, useEffect } from "react";
 export interface DropdownItem {
   id: number;
   label: string;
+  /** Short label shown in the trigger chip (defaults to label) */
+  shortLabel?: string;
 }
 
 interface DropdownSelectProps {
@@ -23,7 +25,12 @@ export default function DropdownSelect({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [visible, setVisible] = useState(pageSize);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
+    top: 0,
+    left: 0,
+  });
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // close on outside click
@@ -37,9 +44,15 @@ export default function DropdownSelect({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  // focus search when opened
+  // position menu and focus search when opened
   useEffect(() => {
-    if (open) searchRef.current?.focus();
+    if (open) {
+      if (triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect();
+        setMenuPos({ top: rect.bottom + 2, left: rect.left });
+      }
+      searchRef.current?.focus();
+    }
   }, [open]);
 
   // reset visible count when items or search change
@@ -58,18 +71,33 @@ export default function DropdownSelect({
   return (
     <div className="dropdown-select" ref={ref}>
       <button
+        ref={triggerRef}
         type="button"
         className="dropdown-select-trigger"
         onClick={() => setOpen((o) => !o)}
       >
-        <span>
-          {selectedIds.size > 0 ? `${selectedIds.size} selected` : placeholder}
+        <span className="dropdown-select-labels">
+          {typeof (window as any).dropdownTriggerLabel === "function"
+            ? (window as any).dropdownTriggerLabel(
+                items,
+                selectedIds,
+                placeholder,
+              )
+            : selectedIds.size > 0
+              ? items
+                  .filter((i) => selectedIds.has(i.id))
+                  .map((i) => i.shortLabel ?? i.label)
+                  .join(", ")
+              : placeholder}
         </span>
         <span className="dropdown-arrow">{open ? "▲" : "▼"}</span>
       </button>
 
       {open && (
-        <div className="dropdown-select-menu">
+        <div
+          className="dropdown-select-menu"
+          style={{ position: "fixed", top: menuPos.top, left: menuPos.left }}
+        >
           <input
             ref={searchRef}
             type="text"

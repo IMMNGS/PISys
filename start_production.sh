@@ -59,8 +59,11 @@ fi
 # ── Build frontend ──────────────────────────────────────────────────────
 info "Building frontend…"
 cd frontend
-npm install --production=false
+info "Installing frontend dependencies for build (including dev deps)…"
+npm ci
 npm run build
+info "Pruning dev dependencies to keep production install small…"
+npm prune --production || true
 cd "$PROJECT_DIR"
 ok "Frontend built → frontend/dist/"
 

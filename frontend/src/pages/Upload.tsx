@@ -220,14 +220,17 @@ export default function Upload() {
 
       {/* ── Patient selector ───────────────────────────────────────── */}
       <div className="card mb-2">
-        <div className="card-header primary">1. Select Patient</div>
+        <div className="card-header primary">Choose a Patient to Upload Variant Files For</div>
         <div className="card-body">
+          <p className="text-muted mb-1" style={{ fontSize: "0.85rem" }}>
+            Search by lab number or name.
+          </p>
           <SearchableSelect
             key={refreshKey}
             value={patientLabel}
             onChange={handlePatientSelect}
             fetchOptions={fetchPatientOptions}
-            placeholder="Select patient…"
+            placeholder="Search patients by lab number or name…"
             itemLabel="patients"
           />
         </div>
@@ -236,12 +239,14 @@ export default function Upload() {
       {/* ── Upload form ────────────────────────────────────────────── */}
       {patientId && (
         <div className="card mb-2">
-          <div className="card-header primary">2. Upload File</div>
+          <div className="card-header primary">
+            Upload Variant File for {selectedPatient?.lab_number ?? "Patient"}
+          </div>
           <div className="card-body">
             <div className="row mb-1">
               <div className="col-2">
                 <label className="mb-1">
-                  <strong>File type</strong>
+                  <strong>What are you uploading?</strong>
                 </label>
                 <div className="flex-gap" style={{ flexWrap: "wrap" }}>
                   {(Object.keys(UPLOAD_LABELS) as UploadType[]).map((t) => (
@@ -282,22 +287,104 @@ export default function Upload() {
               {uploading ? "Uploading…" : "Upload"}
             </button>
 
-            {uploadType === "vcf" && (
-              <p className="text-muted mt-1" style={{ fontSize: "0.85rem" }}>
-                VCF files are stored on the server filesystem under{" "}
-                <code>data/vcf/&lt;lab_number&gt;/</code>. To store on a remote
-                server, set the <code>DATA_DIR</code> environment variable to a
-                network mount (NFS, SSHFS, S3-Fuse, etc.).
-              </p>
-            )}
+            {/* ── Contextual guidance per file type ── */}
+            <div
+              className="mt-2"
+              style={{
+                fontSize: "0.85rem",
+                background: "#f8fafc",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius)",
+                padding: "0.85rem 1rem",
+              }}
+            >
+              {uploadType === "vcf" && (
+                <>
+                  <strong style={{ display: "block", marginBottom: "0.35rem" }}>
+                    Raw Variant Call File
+                  </strong>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    Upload the patient's <strong>.vcf</strong>,{" "}
+                    <strong>.vcf.gz</strong>, or <strong>.bcf</strong> file
+                    produced by your variant calling pipeline (e.g. GATK
+                    HaplotypeCaller, DeepVariant, Dragen).
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    The file is saved on the server under{" "}
+                    <code>data/vcf/&lt;lab_number&gt;/</code>. Multiple VCF
+                    files per patient are supported — they appear in the table
+                    below and can be individually deleted.
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: 0 }}>
+                    For remote storage, set the <code>DATA_DIR</code>{" "}
+                    environment variable to a network mount (NFS, SSHFS,
+                    S3-Fuse, etc.) so files are written there instead of local
+                    disk.
+                  </p>
+                </>
+              )}
 
-            {uploadType !== "vcf" && (
-              <p className="text-muted mt-1" style={{ fontSize: "0.85rem" }}>
-                The XLSX columns should match the database field names
-                (case-insensitive, spaces converted to underscores).
-                Unrecognised columns are silently ignored.
-              </p>
-            )}
+              {uploadType === "singleton" && (
+                <>
+                  <strong style={{ display: "block", marginBottom: "0.35rem" }}>
+                    Singleton Variant Spreadsheet
+                  </strong>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    Upload an <strong>.xlsx</strong> file where each row is a
+                    single variant finding for this patient. The system
+                    auto-detects header rows and fuzzy-maps column names to
+                    database fields — spaces and case differences are handled
+                    automatically.
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    <strong>Recognised columns:</strong>{" "}
+                    <code>reportable_variant</code>, <code>chr_pos</code>,{" "}
+                    <code>ref_alt</code>, <code>gene_names</code>,{" "}
+                    <code>hgvs_c</code>, <code>hgvs_p</code>,{" "}
+                    <code>exon_number</code>, <code>zygosity</code>,{" "}
+                    <code>inheritance</code>, <code>inherited_from</code>,{" "}
+                    <code>classification</code>, <code>omim_id</code>,{" "}
+                    <code>rsid</code>, <code>igv_review</code>,{" "}
+                    <code>second_review_comment</code>, <code>title</code>,{" "}
+                    <code>gene_region_combined</code>.
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: 0 }}>
+                    Unrecognised columns are silently ignored — your spreadsheet
+                    can contain extra columns without causing errors.
+                  </p>
+                </>
+              )}
+
+              {uploadType === "trio" && (
+                <>
+                  <strong style={{ display: "block", marginBottom: "0.35rem" }}>
+                    Trio Variant Spreadsheet
+                  </strong>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    Upload an <strong>.xlsx</strong> file containing trio
+                    analysis variant findings (proband + parents). Each row
+                    becomes a Trio variant record linked to the selected patient.
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    <strong>Recognised columns:</strong>{" "}
+                    <code>reportable_variant</code>, <code>chr_pos</code>,{" "}
+                    <code>ref_alt</code>, <code>gene_names</code>,{" "}
+                    <code>hgvs_c</code>, <code>hgvs_p</code>,{" "}
+                    <code>exon_number</code>, <code>zygosity</code>,{" "}
+                    <code>inheritance</code>, <code>inherited_from</code>,{" "}
+                    <code>classification</code>, <code>omim_id</code>,{" "}
+                    <code>rsid</code>, <code>igv_review</code>,{" "}
+                    <code>second_review_comment</code>, <code>title</code>,{" "}
+                    <code>gene_region_combined</code>.
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: 0 }}>
+                    Column names are fuzzy-matched — spaces, underscores, and
+                    case differences are handled automatically. Extra columns
+                    are skipped.
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

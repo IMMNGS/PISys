@@ -4,9 +4,7 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <div className="container">
-        <NavLink to="/" className="navbar-brand">
-          Patient Information System
-        </NavLink>
+        <NavLink to="/" className="navbar-brand">Patient Information System</NavLink>
         <ul className="nav-links">
           <li>
             <NavLink to="/" end>

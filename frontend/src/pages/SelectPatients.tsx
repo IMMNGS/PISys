@@ -209,7 +209,8 @@ export default function SelectPatients() {
   }));
   const hpoItems: DropdownItem[] = filterOptions.hpo_terms.map((h) => ({
     id: h.id,
-    label: `${h.hpo_id} — ${h.term_name}`,
+    label: h.hpo_id,
+    shortLabel: h.hpo_id,
   }));
 
   const loadPatients = useCallback(
@@ -431,6 +432,14 @@ export default function SelectPatients() {
                   placeholder="All"
                   selectedIds={selectedHpo}
                   onToggle={toggleHpo}
+                  // Custom trigger label for HPO: only show IDs
+                  pageSize={20}
+                  {...{
+                    triggerLabel: (items: DropdownItem[], selectedIds: Set<number>, placeholder: string) =>
+                      selectedIds.size > 0
+                        ? items.filter(i => selectedIds.has(i.id)).map(i => i.shortLabel ?? i.label).join(", ")
+                        : placeholder
+                  }}
                 />
               </th>
               <th>
