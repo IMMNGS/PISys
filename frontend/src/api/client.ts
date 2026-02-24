@@ -9,7 +9,10 @@ import type {
 const BASE = "/api";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, {
+    ...init,
+    cache: "no-store" as RequestCache,
+  });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -311,11 +314,18 @@ export async function downloadReport(params: {
       (err as { error?: string }).error || `${res.status} ${res.statusText}`,
     );
   }
+  // Extract filename from Content-Disposition header if available
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+  const downloadName = filenameMatch
+    ? filenameMatch[1]
+    : `patient_info_${params.lab_number}.docx`;
+
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `report_${params.lab_number}.docx`;
+  a.download = downloadName;
   a.click();
   URL.revokeObjectURL(url);
 }

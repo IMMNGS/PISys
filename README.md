@@ -14,9 +14,7 @@ HA/
 │   ├── __init__.py
 │   ├── app.py               # Flask factory – serves API + built SPA
 │   ├── config.py             # MySQL & app configuration (env-var driven)
-│   ├── generate_mock_data.py # ALL mock data (20 demo + 1,000 bulk patients)
 │   ├── models.py             # SQLAlchemy models (patients, hpo_terms, singleton, trio, vcf_files, patient_hpo)
-│   ├── seed.py               # Seed script – loads HPO CSV only (production-safe)
 │   └── routes/
 │       ├── __init__.py       # Blueprint registration
 │       ├── helpers.py        # Shared constants & utilities
@@ -28,7 +26,7 @@ HA/
 │       └── reports.py        # Report preview & .docx generation
 │
 ├── data/                     # Data directory (local now, remote-mountable in future)
-│   ├── all_hpo_terms.csv     # ~19,500 HPO terms (used by seed.py)
+│   ├── all_hpo_terms.csv     # ~19,500 HPO terms (loadable via Manage HPO page)
 │   └── vcf/                  # VCF files uploaded per patient
 │
 ├── frontend/                 # React + TypeScript (Vite)
@@ -79,8 +77,8 @@ The setup script will:
 3. Create the MySQL database
 4. Create data directories (`data/`, `data/vcf/`)
 5. Install frontend dependencies and build the React/TypeScript app
-6. Seed the database with HPO terms
-7. Generate 20 demo patients
+
+After setup, load HPO terms from the **Manage HPO** page (or `POST /api/hpo_terms/refresh`), then upload patient data via the **Upload** page.
 
 Then open [http://localhost:5000](http://localhost:5000).
 
@@ -125,26 +123,20 @@ npm run build
 cd ..
 ```
 
-### 5. Seed the database (HPO terms)
+### 5. Load HPO terms
+
+Open the app and navigate to **Manage HPO** → click **Refresh from PyHPO**, or call the API:
 
 ```bash
-python -m backend.seed
+curl -X POST http://localhost:5000/api/hpo_terms/refresh
 ```
 
-### 5b. (Optional) Generate demo patients
+### 6. Upload patient data
 
-```bash
-# 20 hand-crafted demo patients only
-python -m backend.generate_mock_data --predefined
+Use the **Upload** page to import patients, singletons, trios, and VCF files.
+Sample files are provided in `data/sample/` for testing.
 
-# 1,000 bulk random patients only
-python -m backend.generate_mock_data --bulk
-
-# Both (default)
-python -m backend.generate_mock_data
-```
-
-### 6. Run the app (development)
+### 7. Run the app (development)
 
 ```bash
 python run.py
@@ -319,36 +311,13 @@ All Gunicorn settings are configurable via environment variables or `.env`:
 
 ## Data Directory
 
-The `data/` directory stores generated assets and uploaded files:
+The `data/` directory stores reference data and uploaded files:
 
-- `data/all_hpo_terms.csv` — HPO terms CSV used by `seed.py` to populate the database
+- `data/all_hpo_terms.csv` — ~19,500 HPO terms (loadable via Manage HPO page or `POST /api/hpo_terms/refresh`)
 - `data/vcf/` — VCF files uploaded per patient (`.vcf`, `.vcf.gz`, `.bcf`)
+- `data/sample/` — Sample XLSX and VCF files for testing the full upload workflow
 
 The data path is configurable via the `DATA_DIR` environment variable, making it easy to point to a remote/mounted filesystem in production.
-
-## Mock Data Generation
-
-All mock data lives in `generate_mock_data.py` (seed.py is production-safe and only loads HPO terms).
-
-```bash
-source .venv/bin/activate
-
-# 20 demo patients with hand-crafted clinical data & variants
-python -m backend.generate_mock_data --predefined
-
-# 1,000 bulk random patients for load testing
-python -m backend.generate_mock_data --bulk
-
-# Both predefined + bulk (default)
-python -m backend.generate_mock_data
-```
-
-The **predefined** set (LAB-001 … LAB-020) has curated clinical scenarios—CFTR, BRCA, Noonan, etc.  
-The **bulk** set (LAB-0100 … LAB-1099) generates randomized data including:
-
-- Names, ethnicities, case histories, and doctor references
-- 1–3 singleton and 0–2 trio variants with real gene names, HGVS notation, and chromosomal positions
-- 1–5 HPO term assignments per patient
 
 ## Server-Side Pagination
 

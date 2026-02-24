@@ -69,25 +69,38 @@ info "Installing Python dependencies…"
 pip install -q -r requirements.txt
 ok "Python dependencies installed"
 
-# ── Seed database (first run only) ──────────────────────────────────────
-if [[ "${SEED_DB:-}" == "1" || "${SEED_DB:-}" == "true" ]]; then
-    info "Seeding database (HPO terms)…"
-    FLASK_ENV=production python -m backend.seed
-    ok "Database seeded"
+# ── Load HPO terms on first run ─────────────────────────────────────────
+HPO_COUNT=$(mysql -u "${MYSQL_USER:-root}" \
+    ${MYSQL_PASSWORD:+-p"$MYSQL_PASSWORD"} \
+    -h "${MYSQL_HOST:-localhost}" \
+    -P "${MYSQL_PORT:-3306}" \
+    -N -s -e "SELECT COUNT(*) FROM ${MYSQL_DB:-patient_db}.hpo_terms" 2>/dev/null || echo "0")
+if [[ "$HPO_COUNT" == "0" ]]; then
+    info "No HPO terms found — loading from PyHPO (one-time init)…"
+    python -c "
+from backend.app import create_app
+import sys
+app = create_app()
+with app.app_context():
+    from backend.models import db, HPOTerm
+    from pyhpo import Ontology
+    _ = Ontology()
+    added = 0
+    for term in Ontology:
+        if not HPOTerm.query.filter_by(hpo_id=term.id).first():
+            db.session.add(HPOTerm(
+                hpo_id=term.id,
+                term_name=term.name,
+                definition=term.definition or None,
+                synonyms=', '.join(term.synonym) if term.synonym else None,
+            ))
+            added += 1
+    db.session.commit()
+    print(f'Loaded {added} HPO terms')
+"
+    ok "HPO terms loaded"
 else
-    # Auto-detect: seed if the patients table is empty
-    PATIENT_COUNT=$(mysql -u "${MYSQL_USER:-root}" \
-        ${MYSQL_PASSWORD:+-p"$MYSQL_PASSWORD"} \
-        -h "${MYSQL_HOST:-localhost}" \
-        -P "${MYSQL_PORT:-3306}" \
-        -N -s -e "SELECT COUNT(*) FROM ${MYSQL_DB:-patient_db}.patients" 2>/dev/null || echo "0")
-    if [[ "$PATIENT_COUNT" == "0" ]]; then
-        info "Empty database detected — seeding with HPO terms…"
-        FLASK_ENV=production python -m backend.seed
-        ok "Database seeded (HPO terms only)"
-    else
-        ok "Database already has $PATIENT_COUNT patients — skipping seed"
-    fi
+    ok "HPO terms already loaded ($HPO_COUNT terms) — skipping"
 fi
 
 # ── Start Gunicorn ──────────────────────────────────────────────────────

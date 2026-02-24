@@ -2,7 +2,7 @@ import os
 import logging
 
 import pymysql
-from flask import Flask, send_from_directory
+from flask import Flask, request, send_from_directory
 from flask_cors import CORS
 
 from backend.config import config as config_map
@@ -67,6 +67,14 @@ def create_app(config_name="development"):
 
     # Initialise extensions
     db.init_app(app)
+
+    # Prevent browsers from caching API responses
+    @app.after_request
+    def _no_cache_api(response):
+        if request.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
     # Register API blueprints
     from backend.routes import register_blueprints

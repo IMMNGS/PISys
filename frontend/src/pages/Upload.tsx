@@ -49,6 +49,7 @@ export default function Upload() {
   const fileRef = useRef<HTMLInputElement>(null);
   const patientFileRef = useRef<HTMLInputElement>(null);
   const [patientUploading, setPatientUploading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const reloadPatients = () => fetchPatients("").then(setPatients);
 
@@ -105,7 +106,12 @@ export default function Upload() {
     try {
       const r = await uploadPatientsXlsx(file);
       setStatus({ type: "success", msg: r.message });
-      reloadPatients();
+      await reloadPatients();
+      // Force the patient dropdown to refetch fresh data
+      setRefreshKey((k) => k + 1);
+      setPatientId("");
+      setPatientLabel("");
+      patientIdMap.current.clear();
       if (patientFileRef.current) patientFileRef.current.value = "";
     } catch (e: unknown) {
       setStatus({
@@ -217,6 +223,7 @@ export default function Upload() {
         <div className="card-header primary">1. Select Patient</div>
         <div className="card-body">
           <SearchableSelect
+            key={refreshKey}
             value={patientLabel}
             onChange={handlePatientSelect}
             fetchOptions={fetchPatientOptions}

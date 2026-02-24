@@ -18,16 +18,14 @@
    - 6.2 [Application Factory — backend/app.py](#62-application-factory--backendapppy)
    - 6.3 [Configuration — backend/config.py](#63-configuration--backendconfigpy)
    - 6.4 [Models — backend/models.py](#64-models--backendmodelspy)
-   - 6.5 [Seed Script — backend/seed.py](#65-seed-script--backendseedpy)
-   - 6.6 [Mock Data Generator — backend/generate_mock_data.py](#66-mock-data-generator--backendgenerate_mock_datapy)
-   - 6.7 [Route Registration — backend/routes/\_\_init\_\_.py](#67-route-registration--backendroutesinitpy)
-   - 6.8 [Shared Helpers — backend/routes/helpers.py](#68-shared-helpers--backendrouteshelperspy)
-   - 6.9 [HPO Term Routes — backend/routes/hpo_terms.py](#69-hpo-term-routes--backendrouteshpo_termspy)
-   - 6.10 [Patient Routes — backend/routes/patients.py](#610-patient-routes--backendroutespatientspy)
-   - 6.11 [Singleton Routes — backend/routes/singletons.py](#611-singleton-routes--backendroutessingletonspy)
-   - 6.12 [Trio Routes — backend/routes/trios.py](#612-trio-routes--backendroutestriospy)
-   - 6.13 [VCF Routes — backend/routes/vcf.py](#613-vcf-routes--backendroutesvcfpy)
-   - 6.14 [Report Routes — backend/routes/reports.py](#614-report-routes--backendroutesreportspy)
+   - 6.5 [Route Registration — backend/routes/\_\_init\_\_.py](#65-route-registration--backendroutesinitpy)
+   - 6.6 [Shared Helpers — backend/routes/helpers.py](#66-shared-helpers--backendrouteshelperspy)
+   - 6.7 [HPO Term Routes — backend/routes/hpo_terms.py](#67-hpo-term-routes--backendrouteshpo_termspy)
+   - 6.8 [Patient Routes — backend/routes/patients.py](#68-patient-routes--backendroutespatientspy)
+   - 6.9 [Singleton Routes — backend/routes/singletons.py](#69-singleton-routes--backendroutessingletonspy)
+   - 6.10 [Trio Routes — backend/routes/trios.py](#610-trio-routes--backendroutestriospy)
+   - 6.11 [VCF Routes — backend/routes/vcf.py](#611-vcf-routes--backendroutesvcfpy)
+   - 6.12 [Report Routes — backend/routes/reports.py](#612-report-routes--backendroutesreportspy)
 7. [Frontend — TypeScript / React / Vite](#7-frontend--typescript--react--vite)
    - 7.1 [Build & Dev Configuration](#71-build--dev-configuration)
    - 7.2 [Application Entry — main.tsx & App.tsx](#72-application-entry--maintsx--apptsx)
@@ -100,8 +98,6 @@ HA/
 │   ├── app.py                    # Flask app factory + SPA serving
 │   ├── config.py                 # Configuration class (env-var driven)
 │   ├── models.py                 # SQLAlchemy ORM models
-│   ├── seed.py                   # DB seeder: HPO CSV only (production-safe)
-│   ├── generate_mock_data.py     # ALL mock data: 20 demo + 1,000 bulk patients
 │   └── routes/                   # API route blueprints
 │       ├── __init__.py           # Blueprint registration
 │       ├── helpers.py            # Shared utilities & field constants
@@ -113,7 +109,7 @@ HA/
 │       └── reports.py            # Report preview + .docx generation
 │
 ├── data/                         # Data directory (configurable via DATA_DIR)
-│   ├── all_hpo_terms.csv         # ~19,500 HPO terms seed file
+│   ├── all_hpo_terms.csv         # ~19,500 HPO terms (loadable via Manage HPO page)
 │   └── vcf/                      # Patient VCF files (one subfolder per lab_number)
 │
 ├── frontend/                     # React + TypeScript SPA (Vite)
@@ -169,7 +165,7 @@ The `setup.sh` script performs the following steps:
 4. **MySQL database** — creates the `patient_db` database (or the database named by `MYSQL_DB`).
 5. **Data directories** — creates `data/` and `data/vcf/`.
 6. **Frontend build** — runs `npm install && npm run build` in `frontend/`.
-7. **Database seeding** — seeds HPO terms from CSV (production-safe). Demo patients are generated separately via `generate_mock_data.py`.
+7. **(removed)** — seeding and mock data generation have been removed. Load HPO terms from the Manage HPO page or via `POST /api/hpo_terms/refresh`. Upload patient data via the Upload page or sample files in `data/sample/`.
 
 After setup, start the server:
 
@@ -192,13 +188,10 @@ mysql -u root -e "CREATE DATABASE IF NOT EXISTS patient_db CHARACTER SET utf8mb4
 # 3. Build frontend
 cd frontend && npm install && npm run build && cd ..
 
-# 4. Seed database (HPO terms only — production-safe)
-python -m backend.seed
+# 4. Load HPO terms (via the app or API)
+curl -X POST http://localhost:5000/api/hpo_terms/refresh
 
-# 5. (Optional) Generate mock patients
-python -m backend.generate_mock_data --predefined   # 20 demo patients
-python -m backend.generate_mock_data --bulk          # 1,000 random patients
-python -m backend.generate_mock_data                 # both (default)
+# 5. Upload patient data via the Upload page or sample files in data/sample/
 
 # 6. Run (development)
 python run.py
@@ -530,56 +523,7 @@ patient.to_dict(
 )
 ```
 
-### 6.5 Seed Script — `backend/seed.py`
-
-**Usage:** `python -m backend.seed`
-
-Seeds the database with **reference data only** — this file contains no mock/patient data and is production-safe.
-
-- **`seed_hpo_terms(csv_path)`** — reads `data/all_hpo_terms.csv` and bulk-inserts HPO terms that don't already exist. Expects columns: `hpo_id`, `term_name`, `definition`, `synonyms`.
-
-### 6.6 Mock Data Generator — `backend/generate_mock_data.py`
-
-The **single source** of all mock patient data. `seed.py` never touches patient records.
-
-**Usage:**
-
-```bash
-python -m backend.generate_mock_data                 # all (default)
-python -m backend.generate_mock_data --predefined    # 20 demo patients only
-python -m backend.generate_mock_data --bulk           # 1,000 random patients only
-```
-
-Safe to run multiple times — duplicates are skipped by `lab_number`.
-
-**Predefined patients (LAB-001 … LAB-020):**
-
-- 20 hand-crafted clinical scenarios (CFTR, BRCA1/2, GJB2, TP53, etc.).
-- One singleton variant finding per patient with curated HGVS, OMIM, and inheritance data.
-- 1–4 random HPO term assignments.
-
-**Bulk patients (LAB-0100 … LAB-1099):**
-
-- 1,000 randomly generated patients for load testing.
-- 1–3 singleton variant findings per patient.
-- 0–2 trio variant findings (for ~40% of patients).
-- 1–5 random HPO term assignments.
-
-**Data pools include:**
-
-- 170+ male first names, 170+ female first names, 200+ last names.
-- 40+ realistic gene variants with HGVS notation, OMIM IDs, chromosomal positions.
-- Weighted distributions for ethnicities, test types, finding types, classifications, zygosities.
-
-**Key functions:**
-
-- `seed_predefined_patients()` — inserts the 20 curated demo patients with singletons.
-- `generate_bulk_patients()` — generates 1,000 random patients in batches of 100.
-- `generate_patient(idx)` — generates a randomized patient dict.
-- `generate_variant(patient_id)` — generates a randomized variant dict for either singleton or trio use.
-- `random_hkid()` — generates a plausible Hong Kong ID card number.
-
-### 6.7 Route Registration — `backend/routes/__init__.py`
+### 6.5 Route Registration — `backend/routes/__init__.py`
 
 Defines the `ALL_BLUEPRINTS` list and the `register_blueprints(app, url_prefix="/api")` function that iterates through all blueprints and registers them with the given prefix.
 
@@ -592,7 +536,7 @@ Defines the `ALL_BLUEPRINTS` list and the `register_blueprints(app, url_prefix="
 5. `vcf_bp` — VCF file endpoints
 6. `reports_bp` — Report endpoints
 
-### 6.8 Shared Helpers — `backend/routes/helpers.py`
+### 6.6 Shared Helpers — `backend/routes/helpers.py`
 
 **Serialisation:**
 
@@ -625,7 +569,7 @@ Defines the `ALL_BLUEPRINTS` list and the `register_blueprints(app, url_prefix="
 - `_PATIENT_FIELD_VARIATIONS` — internal dict mapping DB field names to lists of known Excel header variations.
 - `_VARIANT_FIELD_VARIATIONS` — internal dict mapping variant DB field names to known Excel header variations.
 
-### 6.9 HPO Term Routes — `backend/routes/hpo_terms.py`
+### 6.7 HPO Term Routes — `backend/routes/hpo_terms.py`
 
 **Blueprint:** `hpo_bp` (name: `"hpo_terms"`)
 
@@ -646,7 +590,7 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 
 - Returns `{ items: [...], total, page, pages }`.
 
-### 6.10 Patient Routes — `backend/routes/patients.py`
+### 6.8 Patient Routes — `backend/routes/patients.py`
 
 **Blueprint:** `patients_bp` (name: `"patients"`)
 
@@ -732,7 +676,7 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 - Returns `{ success: true, fields: { lab_number: "Lab Number (Required)", ... } }`.
 - Used by the frontend to build a dynamic column-mapping UI for XLSX imports.
 
-### 6.11 Singleton Routes — `backend/routes/singletons.py`
+### 6.9 Singleton Routes — `backend/routes/singletons.py`
 
 **Blueprint:** `singletons_bp` (name: `"singletons"`)
 
@@ -762,7 +706,7 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 - Rows with only `None` / NaN values are skipped.
 - Returns `{ message, count }` with HTTP 201.
 
-### 6.12 Trio Routes — `backend/routes/trios.py`
+### 6.10 Trio Routes — `backend/routes/trios.py`
 
 **Blueprint:** `trios_bp` (name: `"trios"`)
 
@@ -776,7 +720,7 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 
 Mirrors the singleton routes with identical structure and XLSX import behavior. Includes the same `reportable_variant` query filter and fuzzy column mapping.
 
-### 6.13 VCF Routes — `backend/routes/vcf.py`
+### 6.11 VCF Routes — `backend/routes/vcf.py`
 
 **Blueprint:** `vcf_bp` (name: `"vcf"`)
 
@@ -802,7 +746,7 @@ Mirrors the singleton routes with identical structure and XLSX import behavior. 
 
 **Storage note:** `VCF_DIR` can point to a local directory or a network mount (NFS, SSHFS, S3-Fuse). To use remote storage, set the `DATA_DIR` environment variable.
 
-### 6.14 Report Routes — `backend/routes/reports.py`
+### 6.12 Report Routes — `backend/routes/reports.py`
 
 **Blueprint:** `reports_bp` (name: `"reports"`)
 

@@ -246,6 +246,19 @@ def get_summary_result(patient):
     """
     finding_type = (patient.type_of_findings or "").upper()
 
+    # Auto-detect finding types from actual variant data when not set
+    if not finding_type:
+        all_singletons = Singleton.query.filter(
+            Singleton.patient_id == patient.id,
+            Singleton.reportable_variant.isnot(None),
+        ).all()
+        all_trios = Trio.query.filter(
+            Trio.patient_id == patient.id,
+            Trio.reportable_variant.isnot(None),
+        ).all()
+        present = {v.reportable_variant.upper() for v in (all_singletons + all_trios) if v.reportable_variant}
+        finding_type = "".join(sorted(present))
+
     if "C" in finding_type:
         # Look for confirmed variants in singletons and trios
         c_singletons = Singleton.query.filter_by(
@@ -441,17 +454,24 @@ def create_word_document(patient, test_type="singleton"):
         p.add_run(str(value))
 
     # Variant table — confirmed (C) findings
-    finding_type = (patient.type_of_findings or "").upper()
     is_trio = test_type.lower() == "trio"
+    VariantModel = Trio if is_trio else Singleton
 
-    if is_trio:
-        c_variants = Trio.query.filter_by(
-            patient_id=patient.id, reportable_variant="C"
-        ).all()
-    else:
-        c_variants = Singleton.query.filter_by(
-            patient_id=patient.id, reportable_variant="C"
-        ).all()
+    # Auto-detect finding types from actual variant data when type_of_findings is not set
+    finding_type = (patient.type_of_findings or "").upper()
+    if not finding_type:
+        present_types = (
+            db.session.query(VariantModel.reportable_variant)
+            .filter(VariantModel.patient_id == patient.id)
+            .filter(VariantModel.reportable_variant.isnot(None))
+            .distinct()
+            .all()
+        )
+        finding_type = "".join(sorted({r[0].upper() for r in present_types if r[0]}))
+
+    c_variants = VariantModel.query.filter_by(
+        patient_id=patient.id, reportable_variant="C"
+    ).all()
 
     if c_variants:
         doc.add_page_break()
@@ -460,20 +480,14 @@ def create_word_document(patient, test_type="singleton"):
         _build_variant_table(doc, c_variants, include_inherited_from=is_trio)
 
     # Additional findings (A)
-    if "A" in finding_type:
-        if is_trio:
-            a_variants = Trio.query.filter_by(
-                patient_id=patient.id, reportable_variant="A"
-            ).all()
-        else:
-            a_variants = Singleton.query.filter_by(
-                patient_id=patient.id, reportable_variant="A"
-            ).all()
-        if a_variants:
-            doc.add_page_break()
-            p = doc.add_paragraph()
-            p.add_run("Additional Findings:").bold = True
-            _build_variant_table(doc, a_variants, include_inherited_from=is_trio)
+    a_variants = VariantModel.query.filter_by(
+        patient_id=patient.id, reportable_variant="A"
+    ).all()
+    if a_variants:
+        doc.add_page_break()
+        p = doc.add_paragraph()
+        p.add_run("Additional Findings:").bold = True
+        _build_variant_table(doc, a_variants, include_inherited_from=is_trio)
 
     # Interpretation text based on finding type
     if "A" in finding_type:
@@ -526,21 +540,15 @@ def create_word_document(patient, test_type="singleton"):
             "clinically indicated."
         )
 
-    if "I" in finding_type:
-        if is_trio:
-            i_variants = Trio.query.filter_by(
-                patient_id=patient.id, reportable_variant="I"
-            ).all()
-        else:
-            i_variants = Singleton.query.filter_by(
-                patient_id=patient.id, reportable_variant="I"
-            ).all()
-        if i_variants:
-            p = doc.add_paragraph()
-            p.add_run(
-                "SUMMARY LIST OF OTHER INCIDENTAL FINDINGS WITHIN THE PANEL:"
-            ).bold = True
-            _build_variant_table(doc, i_variants, include_inherited_from=is_trio)
+    i_variants = VariantModel.query.filter_by(
+        patient_id=patient.id, reportable_variant="I"
+    ).all()
+    if i_variants:
+        p = doc.add_paragraph()
+        p.add_run(
+            "SUMMARY LIST OF OTHER INCIDENTAL FINDINGS WITHIN THE PANEL:"
+        ).bold = True
+        _build_variant_table(doc, i_variants, include_inherited_from=is_trio)
 
     # QC table
     _build_qc_table(doc)
@@ -694,7 +702,9 @@ def generate_report():
     except Exception as e:
         return jsonify({"error": f"Report generation failed: {str(e)}"}), 500
 
-    filename = f"report_{patient.lab_number}_{patient.im_lab_number or 'NA'}.docx"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    im_part = patient.im_lab_number or "NA"
+    filename = f"patient_info_{patient.lab_number}_{timestamp}_{im_part}.docx"
 
     return send_file(
         buf,
