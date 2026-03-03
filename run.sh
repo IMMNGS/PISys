@@ -91,6 +91,15 @@ if [ "$first_time_setup" = true ]; then
   # Create data directories
   info "Creating data directories"
   mkdir -p "$PROJECT_DIR/data/vcf"
+  if [ ! -f "$PROJECT_DIR/data/disease_terms.csv" ]; then
+    cat > "$PROJECT_DIR/data/disease_terms.csv" <<'CSV'
+term_name,notes
+"Combined immunodeficiency","Doctor-defined free-text disease term"
+"Auto-inflammatory syndrome","Use when no exact HPO mapping is available"
+"Primary antibody deficiency","Can later be mapped to canonical HPO terms"
+CSV
+    ok "Created data/disease_terms.csv template"
+  fi
   ok "data/ and data/vcf/ ready"
 
   # MySQL DB creation if CLI available
@@ -119,6 +128,74 @@ if [[ -f "$PROJECT_DIR/.venv/bin/activate" ]]; then
   # shellcheck disable=SC1091
   source "$PROJECT_DIR/.venv/bin/activate"
 fi
+
+# Ensure disease terms CSV exists and sync terms into DB
+if [ ! -f "$PROJECT_DIR/data/disease_terms.csv" ]; then
+  info "Creating data/disease_terms.csv template"
+  cat > "$PROJECT_DIR/data/disease_terms.csv" <<'CSV'
+term_name,notes
+"Combined immunodeficiency","Doctor-defined free-text disease term"
+"Auto-inflammatory syndrome","Use when no exact HPO mapping is available"
+"Primary antibody deficiency","Can later be mapped to canonical HPO terms"
+CSV
+fi
+
+info "Syncing disease terms from data/disease_terms.csv"
+python - <<'PY'
+import csv
+from pathlib import Path
+
+from backend.app import create_app
+from backend.models import DiseaseTerm, db
+
+
+def normalize(text: str) -> str:
+  return " ".join((text or "").strip().lower().split())
+
+
+csv_path = Path("data/disease_terms.csv")
+if not csv_path.exists():
+  print("No disease_terms.csv found; skipping")
+  raise SystemExit(0)
+
+app = create_app()
+added = 0
+updated = 0
+
+with app.app_context():
+  with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+      term_name = (row.get("term_name") or "").strip()
+      notes = (row.get("notes") or "").strip() or None
+      if not term_name:
+        continue
+
+      normalized = normalize(term_name)
+      existing = DiseaseTerm.query.filter_by(normalized_name=normalized).first()
+      if existing is None:
+        db.session.add(DiseaseTerm(
+          term_name=term_name,
+          normalized_name=normalized,
+          notes=notes,
+        ))
+        added += 1
+      else:
+        changed = False
+        if existing.term_name != term_name:
+          existing.term_name = term_name
+          changed = True
+        if notes and existing.notes != notes:
+          existing.notes = notes
+          changed = True
+        if changed:
+          updated += 1
+
+  db.session.commit()
+
+print(f"Disease terms sync complete. Added {added}, updated {updated}.")
+PY
+ok "Disease terms sync completed"
 
 if [ "$MODE" = "production" ]; then
   info "Starting in production mode"

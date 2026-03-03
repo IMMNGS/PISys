@@ -47,6 +47,15 @@ export interface HPOOption {
   term_name: string;
 }
 
+export interface CombinedTermOption {
+  id: number;
+  term_type: "hpo" | "disease";
+  term_id: number;
+  hpo_id?: string;
+  term_name: string;
+  label: string;
+}
+
 export function fetchHPOOptions(
   search = "",
   limit = 20,
@@ -58,6 +67,32 @@ export function fetchHPOOptions(
     offset: String(offset),
   });
   return json(`${BASE}/hpo_terms/options?${params}`);
+}
+
+export function fetchCombinedTermOptions(
+  search = "",
+  limit = 20,
+  offset = 0,
+): Promise<PaginatedOptions<CombinedTermOption>> {
+  const params = new URLSearchParams({
+    search,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return json(`${BASE}/terms/options?${params}`);
+}
+
+export function upsertFreeTextTerm(termName: string): Promise<{
+  id: number;
+  term_id: number;
+  term_type: "disease";
+  label: string;
+}> {
+  return json(`${BASE}/terms/free_text`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ term_name: termName }),
+  });
 }
 
 // ── Patients ─────────────────────────────────────────────────────────────
@@ -98,7 +133,7 @@ export interface PatientListFilters {
   sex?: string;
   age?: string;
   type_of_test?: string;
-  hpo_term_ids?: string;
+  term_ids?: string;
 }
 
 export function fetchPatientList(
@@ -119,7 +154,13 @@ export function fetchPatientList(
 export interface FilterOptions {
   sex: string[];
   type_of_test: string[];
-  hpo_terms: { id: number; hpo_id: string; term_name: string }[];
+  terms: {
+    id: number;
+    term_type: "hpo" | "disease";
+    term_name: string;
+    hpo_id?: string;
+    label: string;
+  }[];
 }
 
 export function fetchFilterOptions(): Promise<FilterOptions> {
@@ -148,6 +189,17 @@ export function assignHPO(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ patient_ids: patientIds, hpo_term_ids: hpoTermIds }),
+  });
+}
+
+export function assignTerms(
+  patientIds: number[],
+  termIds: number[],
+): Promise<{ message: string; hpo_added: number; disease_added: number }> {
+  return json(`${BASE}/patients/assign_terms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patient_ids: patientIds, term_ids: termIds }),
   });
 }
 

@@ -1,6 +1,7 @@
 """Route blueprint registration."""
 
 from backend.routes.hpo_terms import hpo_bp
+from backend.routes.disease_terms import disease_terms_bp
 from backend.routes.patients import patients_bp
 from backend.routes.singletons import singletons_bp
 from backend.routes.trios import trios_bp
@@ -9,6 +10,7 @@ from backend.routes.reports import reports_bp
 
 ALL_BLUEPRINTS = [
     hpo_bp,
+    disease_terms_bp,
     patients_bp,
     singletons_bp,
     trios_bp,

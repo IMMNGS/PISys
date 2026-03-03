@@ -14,9 +14,10 @@ HA/
 │   ├── __init__.py
 │   ├── app.py               # Flask factory – serves API + built SPA
 │   ├── config.py             # MySQL & app configuration (env-var driven)
-│   ├── models.py             # SQLAlchemy models (patients, hpo_terms, singleton, trio, vcf_files, variant_uploads, patient_hpo)
+│   ├── models.py             # SQLAlchemy models (patients, hpo_terms, disease_terms, singleton, trio, vcf_files, variant_uploads, patient_hpo, patient_disease_term)
 │   └── routes/
 │       ├── __init__.py       # Blueprint registration
+│       ├── disease_terms.py  # Free-text disease term endpoints (search, create, assign)
 │       ├── helpers.py        # Shared constants & utilities
 │       ├── hpo_terms.py      # HPO term endpoints (search, refresh from pyhpo)
 │       ├── patients.py       # Patient CRUD, XLSX import, HPO assignment, paginated list & options
@@ -265,6 +266,17 @@ All Gunicorn settings are configurable via environment variables or `.env`:
 | POST   | `/api/patients/assign_hpo`           | Assign HPO terms to patients         |
 | DELETE | `/api/patients/<id>/hpo_terms/<tid>` | Remove an HPO term from a patient    |
 
+### Free-Text Disease Terms
+
+| Method | Endpoint                                      | Description                                                  |
+| ------ | --------------------------------------------- | ------------------------------------------------------------ |
+| GET    | `/api/disease_terms?search=&page=&per_page=`  | Search/paginate free-text disease terms                      |
+| GET    | `/api/disease_terms/options?search=&limit=&offset=` | Lightweight dropdown options for disease terms         |
+| POST   | `/api/disease_terms`                          | Create (or return existing) free-text disease term by name   |
+| GET    | `/api/patients/<id>/disease_terms`            | List disease terms assigned to a patient                     |
+| POST   | `/api/patients/assign_disease_terms`          | Assign disease terms to patients                             |
+| DELETE | `/api/patients/<id>/disease_terms/<tid>`      | Remove a disease term from a patient                         |
+
 ### Singleton Variants
 
 | Method | Endpoint                              | Description                           |
@@ -304,12 +316,14 @@ All Gunicorn settings are configurable via environment variables or `.env`:
 ## Database Schema
 
 - **hpo_terms** — `id`, `hpo_id` (unique), `term_name`, `definition`, `synonyms`
+- **disease_terms** — `id`, `term_name`, `normalized_name` (unique + indexed), `notes`, `created_at`
 - **patients** — `id`, `report_date`, `lab_number` (unique), `im_lab_number`, `name`, `hkid`, `dob`, `sex`, `age`, `age_unit`, `ethnicity`, `specimen_collected`, `specimen_arrived`, `clinical_history` (stored in DB column `case_history`), `type_of_test`, `type_of_findings`, `findings_summary`, `ngs_batch`, `ngs_tat`, `ngs_tat_final`, `request_dr`, `remark`, `created_at`
 - **singleton** — `id`, `patient_id` (FK → patients), `reportable_variant`, `chr_pos`, `ref_alt`, `igv_review`, `second_review_comment`, `gene_names`, `hgvs_c`, `hgvs_p`, `exon_number`, `zygosity`, `inheritance`, `inherited_from`, `classification`, `omim_id`, `rsid`, `title`, `omimid`, `gene_region_combined`, `created_at`
 - **trio** — same columns as singleton
 - **vcf_files** — `id`, `patient_id` (FK → patients), `filename`, `relative_path`, `file_size`, `uploaded_at`
 - **variant_uploads** — `id`, `patient_id` (FK → patients), `file_type` (`singleton`/`trio`), `original_filename`, `stored_filename`, `relative_path`, `file_size`, `uploaded_at`
 - **patient_hpo** — many-to-many join: `id`, `patient_id` (FK → patients), `hpo_term_id` (FK → hpo_terms), `date_added`
+- **patient_disease_term** — many-to-many join: `id`, `patient_id` (FK → patients), `disease_term_id` (FK → disease_terms), `date_added`
 
 ## Data Directory
 

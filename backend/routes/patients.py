@@ -2,7 +2,12 @@
 
 from flask import Blueprint, abort, jsonify, request
 
-from backend.models import db, HPOTerm, Patient, patient_hpo
+from backend.models import (
+    db,
+    Patient,
+    patient_disease_term,
+    patient_hpo,
+)
 from backend.routes.helpers import (
     _patient_to_dict, _parse_xlsx_rows,
     PATIENT_FIELDS, DATE_FIELDS,
@@ -94,26 +99,37 @@ def get_patient_list():
         except ValueError:
             pass  # ignore non-numeric age filter
 
-    # HPO term filter — only show patients that have ALL selected HPO terms
-    hpo_ids = request.args.get("hpo_term_ids", "").strip()
-    if hpo_ids:
+    # Combined terms filter (HPO + free-text disease) — require ALL selected
+    # term IDs. Positive IDs = hpo_terms.id, negative IDs = disease_terms.id.
+    term_ids = request.args.get("term_ids", "").strip()
+    if term_ids:
         try:
-            id_list = [int(x) for x in hpo_ids.split(",") if x.strip()]
+            id_list = [int(x) for x in term_ids.split(",") if x.strip()]
         except ValueError:
             id_list = []
-        for hpo_id in id_list:
-            query = query.filter(
-                Patient.id.in_(
-                    db.session.query(patient_hpo.c.patient_id).filter(
-                        patient_hpo.c.hpo_term_id == hpo_id
+        for term_id in id_list:
+            if term_id > 0:
+                query = query.filter(
+                    Patient.id.in_(
+                        db.session.query(patient_hpo.c.patient_id).filter(
+                            patient_hpo.c.hpo_term_id == term_id
+                        )
                     )
                 )
-            )
+            elif term_id < 0:
+                disease_id = abs(term_id)
+                query = query.filter(
+                    Patient.id.in_(
+                        db.session.query(patient_disease_term.c.patient_id).filter(
+                            patient_disease_term.c.disease_term_id == disease_id
+                        )
+                    )
+                )
 
     query = query.order_by(Patient.id)
     total = query.count()
     patients = query.offset(offset).limit(limit).all()
-    items = [p.to_dict(include_hpo=True) for p in patients]
+    items = [p.to_dict(include_hpo=True, include_disease_terms=True) for p in patients]
     return jsonify({"items": items, "total": total})
 
 
@@ -128,7 +144,7 @@ def get_patient(patient_id):
 @patients_bp.route("/patients/filter_options", methods=["GET"])
 def get_filter_options():
     """Return distinct values for dropdown filters.
-    Returns {sex: [...], type_of_test: [...], hpo_terms: [{id, hpo_id, term_name}, ...]}."""
+    Returns {sex: [...], type_of_test: [...], terms: [...]}."""
     sex_values = sorted([
         r[0] for r in
         db.session.query(Patient.sex).filter(Patient.sex.isnot(None), Patient.sex != "").distinct().all()
@@ -139,16 +155,7 @@ def get_filter_options():
             Patient.type_of_test.isnot(None), Patient.type_of_test != ""
         ).distinct().all()
     ])
-    # Only HPO terms that are actually assigned to at least one patient
-    hpo_terms = (
-        db.session.query(HPOTerm)
-        .join(patient_hpo, HPOTerm.id == patient_hpo.c.hpo_term_id)
-        .distinct()
-        .order_by(HPOTerm.hpo_id)
-        .all()
-    )
-    hpo_list = [{"id": t.id, "hpo_id": t.hpo_id, "term_name": t.term_name} for t in hpo_terms]
-    return jsonify({"sex": sex_values, "type_of_test": test_values, "hpo_terms": hpo_list})
+    return jsonify({"sex": sex_values, "type_of_test": test_values, "terms": []})
 
 
 @patients_bp.route("/patients", methods=["POST"])

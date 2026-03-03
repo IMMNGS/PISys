@@ -4,11 +4,13 @@ import {
   fetchPatientList,
   fetchSelectedPatients,
   fetchFilterOptions,
+  fetchCombinedTermOptions,
 } from "../api/client";
 import type { PatientInfo } from "../types";
 import type { PatientListFilters, FilterOptions } from "../api/client";
 import DropdownSelect from "../components/DropdownSelect";
 import type { DropdownItem } from "../components/DropdownSelect";
+import SearchableMultiSelect from "../components/SearchableMultiSelect";
 
 /* ── Tab definitions for the code-guide panel ─────────────────────────── */
 type ToolTab = "python" | "r" | "curl" | "sql";
@@ -113,8 +115,8 @@ curl ${baseUrl}/api/patients/${ids[0] ?? 1}/trios
 # Fetch VCF file list for a patient
 curl ${baseUrl}/api/patients/${ids[0] ?? 1}/vcf
 
-# Fetch HPO terms for a patient
-curl ${baseUrl}/api/patients/${ids[0] ?? 1}/hpo_terms
+# Fetch disease terms for a patient
+curl ${baseUrl}/api/patients/${ids[0] ?? 1}
 `;
 
     case "sql":
@@ -137,11 +139,17 @@ WHERE t.patient_id IN (${idList});
 SELECT v.* FROM vcf_files v
 WHERE v.patient_id IN (${idList});
 
--- Patients with HPO terms
-SELECT p.lab_number, p.name, h.hpo_id, h.term_name
+-- Patients with disease terms
+SELECT p.lab_number, p.name, h.hpo_id AS term_code, h.term_name
 FROM patients p
 JOIN patient_hpo ph ON ph.patient_id = p.id
 JOIN hpo_terms h ON h.id = ph.hpo_term_id
+WHERE p.id IN (${idList})
+UNION ALL
+SELECT p.lab_number, p.name, NULL AS term_code, d.term_name
+FROM patients p
+JOIN patient_disease_term pdt ON pdt.patient_id = p.id
+JOIN disease_terms d ON d.id = pdt.disease_term_id
 WHERE p.id IN (${idList});
 `;
   }
@@ -155,7 +163,7 @@ interface Filters {
   sex: string;
   age: string;
   type_of_test: string;
-  hpo_term_ids: string;
+  term_ids: string;
 }
 
 const emptyFilters: Filters = {
@@ -165,7 +173,7 @@ const emptyFilters: Filters = {
   sex: "",
   age: "",
   type_of_test: "",
-  hpo_term_ids: "",
+  term_ids: "",
 };
 
 const PAGE_SIZE = 20;
@@ -187,11 +195,11 @@ export default function SelectPatients() {
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
     sex: [],
     type_of_test: [],
-    hpo_terms: [],
+    terms: [],
   });
   const [selectedSex, setSelectedSex] = useState<Set<number>>(new Set());
   const [selectedTest, setSelectedTest] = useState<Set<number>>(new Set());
-  const [selectedHpo, setSelectedHpo] = useState<Set<number>>(new Set());
+  const [selectedTerms, setSelectedTerms] = useState<Set<number>>(new Set());
 
   // Load filter options once
   useEffect(() => {
@@ -207,11 +215,19 @@ export default function SelectPatients() {
     id: i,
     label: t,
   }));
-  const hpoItems: DropdownItem[] = filterOptions.hpo_terms.map((h) => ({
-    id: h.id,
-    label: h.hpo_id,
-    shortLabel: h.hpo_id,
-  }));
+  const fetchTermItems = useCallback(
+    async (search: string, limit: number, offset: number) => {
+      const result = await fetchCombinedTermOptions(search, limit, offset);
+      return {
+        items: result.items.map((t) => ({
+          id: t.id,
+          label: t.label,
+        })),
+        total: result.total,
+      };
+    },
+    [],
+  );
 
   const loadPatients = useCallback(
     async (f: Filters, offset = 0, limit = PAGE_SIZE, append = false) => {
@@ -222,7 +238,7 @@ export default function SelectPatients() {
       if (f.sex) apiFilters.sex = f.sex;
       if (f.age) apiFilters.age = f.age;
       if (f.type_of_test) apiFilters.type_of_test = f.type_of_test;
-      if (f.hpo_term_ids) apiFilters.hpo_term_ids = f.hpo_term_ids;
+      if (f.term_ids) apiFilters.term_ids = f.term_ids;
 
       if (append) {
         setLoadingMore(true);
@@ -264,7 +280,7 @@ export default function SelectPatients() {
     setFilters(emptyFilters);
     setSelectedSex(new Set());
     setSelectedTest(new Set());
-    setSelectedHpo(new Set());
+    setSelectedTerms(new Set());
     loadPatients(emptyFilters);
   };
 
@@ -302,12 +318,12 @@ export default function SelectPatients() {
     });
   };
 
-  const toggleHpo = (id: number) => {
-    setSelectedHpo((prev) => {
+  const toggleTerm = (id: number) => {
+    setSelectedTerms((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       const ids = [...next].join(",");
-      const nextFilters = { ...filters, hpo_term_ids: ids };
+      const nextFilters = { ...filters, term_ids: ids };
       setFilters(nextFilters);
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => loadPatients(nextFilters), 300);
@@ -373,7 +389,7 @@ export default function SelectPatients() {
               <th>Sex</th>
               <th>Age</th>
               <th>Test Type</th>
-              <th>HPO Terms</th>
+              <th className="disease-terms-col">Disease Terms</th>
               <th />
             </tr>
             <tr className="filter-row">
@@ -426,20 +442,15 @@ export default function SelectPatients() {
                   onToggle={toggleTest}
                 />
               </th>
-              <th>
-                <DropdownSelect
-                  items={hpoItems}
-                  placeholder="All"
-                  selectedIds={selectedHpo}
-                  onToggle={toggleHpo}
-                  // Custom trigger label for HPO: only show IDs
+              <th className="disease-terms-col">
+                <SearchableMultiSelect
+                  selectedIds={selectedTerms}
+                  onToggle={toggleTerm}
+                  fetchOptions={fetchTermItems}
+                  placeholder="Search disease terms…"
+                  itemLabel="disease terms"
                   pageSize={20}
-                  {...{
-                    triggerLabel: (items: DropdownItem[], selectedIds: Set<number>, placeholder: string) =>
-                      selectedIds.size > 0
-                        ? items.filter(i => selectedIds.has(i.id)).map(i => i.shortLabel ?? i.label).join(", ")
-                        : placeholder
-                  }}
+                  loadMoreSize={200}
                 />
               </th>
               <th>
@@ -491,15 +502,24 @@ export default function SelectPatients() {
                     {p.age != null ? `${p.age} ${p.age_unit ?? ""}` : "—"}
                   </td>
                   <td>{p.type_of_test ?? "—"}</td>
-                  <td>
-                    {p.hpo_terms && p.hpo_terms.length > 0
-                      ? p.hpo_terms.map((t) => (
-                          <span
-                            className="badge"
-                            key={t.id}
-                            title={t.term_name}
-                          >
-                            {t.hpo_id}
+                  <td className="disease-terms-col">
+                    {((p.hpo_terms?.length ?? 0) + (p.disease_terms?.length ?? 0)) > 0
+                      ? (
+                          [
+                            ...(p.hpo_terms ?? []).map((t) => ({
+                              key: `hpo-${t.id}`,
+                              label: t.hpo_id,
+                              title: t.term_name,
+                            })),
+                            ...(p.disease_terms ?? []).map((t) => ({
+                              key: `disease-${t.id}`,
+                              label: t.term_name,
+                              title: t.term_name,
+                            })),
+                          ]
+                        ).map((term) => (
+                          <span className="badge" key={term.key} title={term.title}>
+                            {term.label}
                           </span>
                         ))
                       : "—"}
@@ -599,7 +619,7 @@ export default function SelectPatients() {
                     <th>Singletons</th>
                     <th>Trios</th>
                     <th>VCF Files</th>
-                    <th>HPO</th>
+                    <th>Disease Terms</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -617,10 +637,21 @@ export default function SelectPatients() {
                       <td>{p.trios?.length ?? 0}</td>
                       <td>{p.vcf_files?.length ?? 0}</td>
                       <td>
-                        {p.hpo_terms.length > 0
-                          ? p.hpo_terms.map((t) => (
-                              <span className="badge" key={t.id}>
-                                {t.hpo_id}
+                        {((p.hpo_terms?.length ?? 0) + (p.disease_terms?.length ?? 0)) > 0
+                          ? (
+                              [
+                                ...(p.hpo_terms ?? []).map((t) => ({
+                                  key: `hpo-${t.id}`,
+                                  label: t.hpo_id,
+                                })),
+                                ...(p.disease_terms ?? []).map((t) => ({
+                                  key: `disease-${t.id}`,
+                                  label: t.term_name,
+                                })),
+                              ]
+                            ).map((term) => (
+                              <span className="badge" key={term.key}>
+                                {term.label}
                               </span>
                             ))
                           : "—"}

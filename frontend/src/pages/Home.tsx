@@ -7,8 +7,8 @@ export default function Home() {
         Patient Information System
       </h1>
       <p className="text-muted mt-1" style={{ maxWidth: "540px", margin: "0.5rem auto 0", textWrap: "balance" as any }}>
-        Manage Human Phenotype Ontology terms, link them to patients, and select
-        cohorts for downstream analysis.
+        Manage disease terms, link them to patients, and select cohorts for
+        downstream analysis.
       </p>
       <hr />
       <div className="row" style={{ marginTop: "2rem", justifyContent: "center" }}>
@@ -54,9 +54,10 @@ export default function Home() {
         <div style={{ flex: "1 1 260px", maxWidth: "280px" }}>
           <div className="card" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
             <div className="card-body text-center" style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
-              <h3 className="card-title">Manage HPO Terms</h3>
+              <h3 className="card-title">Manage Disease Terms</h3>
               <p className="text-muted" style={{ flex: 1 }}>
-                Search HPO terms and assign them to patients using side-by-side selectors.
+                Search disease terms and assign
+                them to patients.
               </p>
               <Link to="/manage-hpo" className="btn btn-outline" style={{ marginTop: "auto" }}>
                 Manage Terms

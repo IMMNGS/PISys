@@ -14,6 +14,15 @@ patient_hpo = db.Table(
     db.UniqueConstraint("patient_id", "hpo_term_id", name="uq_patient_hpo"),
 )
 
+patient_disease_term = db.Table(
+    "patient_disease_term",
+    db.Column("id", db.Integer, primary_key=True, autoincrement=True),
+    db.Column("patient_id", db.Integer, db.ForeignKey("patients.id"), nullable=False),
+    db.Column("disease_term_id", db.Integer, db.ForeignKey("disease_terms.id"), nullable=False),
+    db.Column("date_added", db.DateTime, default=lambda: datetime.now(timezone.utc)),
+    db.UniqueConstraint("patient_id", "disease_term_id", name="uq_patient_disease_term"),
+)
+
 
 class HPOTerm(db.Model):
     """Human Phenotype Ontology term — reference data."""
@@ -32,6 +41,26 @@ class HPOTerm(db.Model):
             "term_name": self.term_name,
             "definition": self.definition,
             "synonyms": self.synonyms,
+        }
+
+
+class DiseaseTerm(db.Model):
+    """Free-text disease term used when no canonical HPO term is available."""
+    __tablename__ = "disease_terms"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    term_name = db.Column(db.String(500), nullable=False)
+    normalized_name = db.Column(db.String(500), unique=True, nullable=False, index=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "term_name": self.term_name,
+            "normalized_name": self.normalized_name,
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 
@@ -85,6 +114,8 @@ class Patient(db.Model):
     # Many-to-many: a patient can have many HPO terms
     hpo_terms = db.relationship("HPOTerm", secondary=patient_hpo, lazy="select",
                                 backref=db.backref("patients", lazy="dynamic"))
+    disease_terms = db.relationship("DiseaseTerm", secondary=patient_disease_term, lazy="select",
+                                    backref=db.backref("patients", lazy="dynamic"))
 
     @property
     def clinical_history(self):
@@ -96,7 +127,8 @@ class Patient(db.Model):
 
     def to_dict(self, include_hpo=True, include_singletons=False,
                 include_trios=False, include_vcf_files=False,
-                include_variant_uploads=False):
+                include_variant_uploads=False,
+                include_disease_terms=False):
         data = {
             "id": self.id,
             "report_date": self.report_date.isoformat() if self.report_date else None,
@@ -127,6 +159,8 @@ class Patient(db.Model):
             data["hpo_terms"] = [t.to_dict() for t in self.hpo_terms]
         else:
             data["hpo_terms"] = []
+        if include_disease_terms:
+            data["disease_terms"] = [t.to_dict() for t in self.disease_terms]
         if include_singletons:
             data["singletons"] = [s.to_dict() for s in self.singletons]
         if include_trios:

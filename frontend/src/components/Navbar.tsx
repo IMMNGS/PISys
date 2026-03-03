@@ -21,7 +21,7 @@ export default function Navbar() {
             <NavLink to="/report">Report</NavLink>
           </li>
           <li>
-            <NavLink to="/manage-hpo">Manage HPO Terms</NavLink>
+            <NavLink to="/manage-hpo">Manage Disease Terms</NavLink>
           </li>
         </ul>
       </div>

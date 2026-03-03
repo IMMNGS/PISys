@@ -8,6 +8,11 @@ export interface HPOTerm {
   synonyms: string | null;
 }
 
+export interface DiseaseTerm {
+  id: number;
+  term_name: string;
+}
+
 export interface SingletonInfo {
   id: number;
   patient_id: number;
@@ -91,6 +96,7 @@ export interface PatientInfo {
   remark: string | null;
   created_at: string | null;
   hpo_terms: HPOTerm[];
+  disease_terms?: DiseaseTerm[];
   singletons?: SingletonInfo[];
   trios?: TrioInfo[];
   vcf_files?: VcfFileInfo[];

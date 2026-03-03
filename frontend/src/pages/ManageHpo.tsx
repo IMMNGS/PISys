@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   fetchHPOTerms,
-  fetchHPOOptions,
+  fetchCombinedTermOptions,
+  upsertFreeTextTerm,
   fetchPatientOptions,
-  assignHPO,
+  assignTerms,
   refreshHPOTerms,
 } from "../api/client";
 import type { HPOTerm } from "../types";
@@ -11,8 +12,8 @@ import SearchableMultiSelect from "../components/SearchableMultiSelect";
 
 export default function ManageHpo() {
   // ── Selection state ────────────────────────────────────────────────────
-  const [selectedHpoIds, setSelectedHpoIds] = useState<Set<number>>(new Set());
-  const [selectedHpoLabels, setSelectedHpoLabels] = useState<Map<number, string>>(new Map());
+  const [selectedTermIds, setSelectedTermIds] = useState<Set<number>>(new Set());
+  const [selectedTermLabels, setSelectedTermLabels] = useState<Map<number, string>>(new Map());
   const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(
     new Set(),
   );
@@ -36,16 +37,16 @@ export default function ManageHpo() {
   const [browsePages, setBrowsePages] = useState(0);
 
   // ── Fetch callbacks for SearchableMultiSelect ─────────────────────────
-  const fetchHpoItems = useCallback(
+  const fetchTermItems = useCallback(
     async (search: string, limit: number, offset: number) => {
-      const result = await fetchHPOOptions(search, limit, offset);
+      const result = await fetchCombinedTermOptions(search, limit, offset);
       const items = result.items.map((t) => ({
         id: t.id,
-        label: `${t.hpo_id} \u2014 ${t.term_name}`,
+        label: t.label,
       }));
       // Track labels for selected tags
       for (const item of items) {
-        setSelectedHpoLabels((prev) => new Map(prev).set(item.id, item.label));
+        setSelectedTermLabels((prev) => new Map(prev).set(item.id, item.label));
       }
       return { items, total: result.total };
     },
@@ -68,22 +69,29 @@ export default function ManageHpo() {
     [],
   );
 
-  // ── HPO selection ──────────────────────────────────────────────────────
-  const toggleHpo = (id: number) => {
-    setSelectedHpoIds((prev) => {
+  // ── Term selection (HPO + free-text) ──────────────────────────────────
+  const toggleTerm = (id: number) => {
+    setSelectedTermIds((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
 
-  const removeHpoTerm = (id: number) => {
-    setSelectedHpoIds((prev) => {
+  const removeTerm = (id: number) => {
+    setSelectedTermIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
   };
+
+  const createFreeTextTerm = useCallback(async (text: string) => {
+    const result = await upsertFreeTextTerm(text);
+    const item = { id: result.id, label: result.label };
+    setSelectedTermLabels((prev) => new Map(prev).set(item.id, item.label));
+    return item;
+  }, []);
 
   // ── Patient selection ──────────────────────────────────────────────────
   const togglePatient = (id: number) => {
@@ -104,23 +112,23 @@ export default function ManageHpo() {
 
   // Reset labels when assignment succeeds
   const clearSelections = () => {
-    setSelectedHpoIds(new Set());
+    setSelectedTermIds(new Set());
     setSelectedPatientIds(new Set());
-    setSelectedHpoLabels(new Map());
+    setSelectedTermLabels(new Map());
     setSelectedPatientLabels(new Map());
   };
 
   // ── Assign action ─────────────────────────────────────────────────────
   const handleAssign = async () => {
     try {
-      const result = await assignHPO(
+      const result = await assignTerms(
         [...selectedPatientIds],
-        [...selectedHpoIds],
+        [...selectedTermIds],
       );
       setAssignMsg({ type: "success", text: result.message });
       clearSelections();
     } catch {
-      setAssignMsg({ type: "danger", text: "Failed to assign HPO terms." });
+      setAssignMsg({ type: "danger", text: "Failed to assign terms." });
     }
   };
 
@@ -156,13 +164,13 @@ export default function ManageHpo() {
     return () => clearTimeout(timer);
   }, [browseSearch, browsePage]);
 
-  const canAssign = selectedHpoIds.size > 0 && selectedPatientIds.size > 0;
+  const canAssign = selectedTermIds.size > 0 && selectedPatientIds.size > 0;
 
   return (
     <>
       {/* Header */}
       <div className="flex-between mb-1">
-        <h2>Assign HPO Terms to Patients</h2>
+        <h2>Manage Disease Terms</h2>
         <button
           className="btn btn-outline-warning"
           disabled={refreshing}
@@ -172,7 +180,8 @@ export default function ManageHpo() {
         </button>
       </div>
       <p className="text-muted mb-2">
-        Select HPO terms and patients from the dropdowns, then assign.
+        Use one search to find disease terms,
+        then assign selected terms to selected patients.
       </p>
 
       {refreshMsg && (
@@ -183,28 +192,30 @@ export default function ManageHpo() {
 
       {/* Side-by-side selectors */}
       <div className="row">
-        {/* HPO Terms dropdown */}
+        {/* Disease Terms dropdown */}
         <div className="col-2">
           <div className="card">
-            <div className="card-header primary">HPO Terms</div>
+            <div className="card-header primary">Disease Terms</div>
             <div className="card-body">
               <SearchableMultiSelect
-                selectedIds={selectedHpoIds}
-                onToggle={toggleHpo}
-                fetchOptions={fetchHpoItems}
-                placeholder="Select HPO terms…"
-                itemLabel="HPO terms"
+                selectedIds={selectedTermIds}
+                onToggle={toggleTerm}
+                fetchOptions={fetchTermItems}
+                onCreateFromSearch={createFreeTextTerm}
+                createLabelPrefix="Add disease term"
+                placeholder="Search disease terms…"
+                itemLabel="terms"
               />
-              {selectedHpoIds.size > 0 && (
+              {selectedTermIds.size > 0 && (
                 <div className="selected-tags mt-1">
                   <small className="text-muted">Selected:</small>
                   <div className="tag-list">
-                    {[...selectedHpoIds].map((id) => (
+                    {[...selectedTermIds].map((id) => (
                         <span key={id} className="tag">
-                          {selectedHpoLabels.get(id) ?? `#${id}`}
+                          {selectedTermLabels.get(id) ?? `#${id}`}
                           <button
                             className="tag-remove"
-                            onClick={() => removeHpoTerm(id)}
+                            onClick={() => removeTerm(id)}
                           >
                             ×
                           </button>
@@ -258,8 +269,8 @@ export default function ManageHpo() {
           disabled={!canAssign}
           onClick={handleAssign}
         >
-          Assign Selected HPO Terms → Selected Patients ({selectedHpoIds.size}{" "}
-          terms, {selectedPatientIds.size} patients)
+          Assign Selected Terms → Selected Patients ({selectedTermIds.size} terms,
+          {" "}{selectedPatientIds.size} patients)
         </button>
       </div>
 
@@ -272,7 +283,7 @@ export default function ManageHpo() {
       <hr />
 
       {/* Browse HPO table */}
-      <h3>Browse HPO Terms</h3>
+      <h3>Browse HPO Reference Terms</h3>
       <input
         type="text"
         className="form-control mb-2"

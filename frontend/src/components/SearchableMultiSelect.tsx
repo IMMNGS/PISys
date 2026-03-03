@@ -27,6 +27,11 @@ interface SearchableMultiSelectProps {
   pageSize?: number;
   /** How many more items to fetch per "Load more" click (default 100) */
   loadMoreSize?: number;
+  /** Optional action to create/select a new entry from current search text */
+  onCreateFromSearch?: (
+    text: string,
+  ) => Promise<MultiSelectItem | null>;
+  createLabelPrefix?: string;
 }
 
 export default function SearchableMultiSelect({
@@ -38,6 +43,8 @@ export default function SearchableMultiSelect({
   itemLabel = "items",
   pageSize = 20,
   loadMoreSize = 100,
+  onCreateFromSearch,
+  createLabelPrefix = "Add",
 }: SearchableMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -45,10 +52,17 @@ export default function SearchableMultiSelect({
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number }>({
+    top: 0,
+    left: 0,
+    width: 260,
+  });
 
   const remaining = total - options.length;
 
@@ -65,7 +79,17 @@ export default function SearchableMultiSelect({
 
   // focus input when opened
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) {
+      if (triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect();
+        setMenuPos({
+          top: rect.bottom + 2,
+          left: rect.left,
+          width: Math.max(260, rect.width),
+        });
+      }
+      inputRef.current?.focus();
+    }
   }, [open]);
 
   // fetch first page (immediate or debounced)
@@ -135,9 +159,36 @@ export default function SearchableMultiSelect({
     }
   };
 
+  const canCreate = !!onCreateFromSearch && search.trim().length > 0;
+
+  const handleCreate = async () => {
+    if (!onCreateFromSearch) return;
+    const text = search.trim();
+    if (!text) return;
+    setCreating(true);
+    try {
+      const item = await onCreateFromSearch(text);
+      if (!item) return;
+      setOptions((prev) => {
+        if (prev.some((p) => p.id === item.id)) return prev;
+        return [item, ...prev];
+      });
+      setTotal((prev) => prev + 1);
+      onToggle(item.id);
+      setSearch("");
+      loadOptions("", true);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="searchable-select" ref={ref}>
-      <div className="searchable-select-box" onClick={handleTriggerClick}>
+      <div
+        ref={triggerRef}
+        className="searchable-select-box"
+        onClick={handleTriggerClick}
+      >
         {open ? (
           <input
             ref={inputRef}
@@ -172,7 +223,15 @@ export default function SearchableMultiSelect({
       </div>
 
       {open && (
-        <div className="dropdown-select-menu">
+        <div
+          className="dropdown-select-menu"
+          style={{
+            position: "fixed",
+            top: menuPos.top,
+            left: menuPos.left,
+            width: menuPos.width,
+          }}
+        >
           <ul className="dropdown-select-list">
             {loading && <li className="dropdown-select-empty">Loading…</li>}
             {!loading && options.length === 0 && (
@@ -196,6 +255,19 @@ export default function SearchableMultiSelect({
                   <span>{item.label}</span>
                 </li>
               ))}
+            {!loading && canCreate && (
+              <li
+                className="dropdown-select-item"
+                onClick={handleCreate}
+                style={{ fontStyle: "italic" }}
+              >
+                <span>
+                  {creating
+                    ? "Creating…"
+                    : `${createLabelPrefix}: \"${search.trim()}\"`}
+                </span>
+              </li>
+            )}
           </ul>
           {!loading && remaining > 0 && (
             <button

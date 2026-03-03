@@ -426,19 +426,17 @@ def create_word_document(patient, test_type="singleton"):
                 "be considered if clinically indicated."
             )
 
-        # Comments and Variant classification (editable sections)
+        # Editable sections
         doc.add_page_break()
-        for section_title in ["COMMENTS:", "VARIANT CLASSIFICATION:"]:
+        for section_title in [
+            "INTERPRETATION / RECOMMENDED ACTION:",
+            "COMMENTS:",
+            "VARIANT CLASSIFICATION:",
+        ]:
             p = doc.add_paragraph()
             p.add_run(section_title).bold = True
             for _ in range(6):
                 doc.add_paragraph()
-
-        # Appendix marker
-        p = doc.add_paragraph()
-        run = p.add_run("APPENDIX")
-        run.underline = True
-        run.bold = True
 
         # Incidental findings (I)
         if "I" in finding_type and "A" not in finding_type:
@@ -462,10 +460,16 @@ def create_word_document(patient, test_type="singleton"):
                 "clinically indicated."
             )
 
+        p = doc.add_paragraph()
+        run = p.add_run("APPENDIX")
+        run.underline = True
+        run.bold = True
+
         i_variants = VariantModel.query.filter_by(
             patient_id=patient.id, reportable_variant="I"
         ).all()
         if i_variants:
+            doc.add_page_break()
             p = doc.add_paragraph()
             p.add_run(
                 "SUMMARY LIST OF OTHER INCIDENTAL FINDINGS WITHIN THE PANEL:"

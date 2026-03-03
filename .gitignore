@@ -31,4 +31,4 @@ Thumbs.db
 *.log
 
 # Misc
-backend/routes/patient_info
+backend/routes/patient_info*

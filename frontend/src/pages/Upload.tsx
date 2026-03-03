@@ -342,25 +342,20 @@ export default function Upload() {
                 <>
                   <strong style={{ display: "block", marginBottom: "0.35rem" }}>
                     Raw Variant Call File
-                  <button
-                    className="btn btn-secondary mt-1 ml-2"
-                    style={{ marginLeft: "0.5rem" }}
-                    disabled={!lastUploaded?.labNumber}
-                    onClick={() => {
-                      if (!lastUploaded?.labNumber) return;
-                      const reportType = lastUploaded.testType === "trio" ? "trio" : "singleton";
-                      const params = new URLSearchParams({
-                        lab_number: lastUploaded.labNumber,
-                        test_type: reportType,
-                        auto_preview: "1",
-                      });
-                      navigate(`/report?${params.toString()}`);
-                    }}
-                  >
-                    Generate Report
-                  </button>
-                    S3-Fuse, etc.) so files are written there instead of local
-                    disk.
+                  </strong>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    Upload a <strong>.vcf</strong>, <strong>.vcf.gz</strong>, or
+                    <strong> .bcf</strong> file. The file is stored under the
+                    patient-specific data directory and linked to this patient.
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
+                    VCF uploads are tracked in the database for audit and can be
+                    listed or deleted from this page.
+                  </p>
+                  <p className="text-muted" style={{ marginBottom: 0 }}>
+                    In production, set <code>DATA_DIR</code> to your mounted
+                    remote storage (NFS, EFS, SMB, S3-Fuse, etc.) so files are
+                    written there instead of local disk.
                   </p>
                 </>
               )}
