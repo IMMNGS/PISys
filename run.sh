@@ -1,6 +1,5 @@
 # Load .env if present
 if [[ -f .env ]]; then
-  info "Loading .env file..."
   set -a
   # shellcheck disable=SC1091
   source .env
@@ -26,7 +25,7 @@ fail()  { echo -e "${RED}✗ $*${NC}"; exit 1; }
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
-MODE="${1:-development}"
+MODE="${1:-production}"
 case "$MODE" in
   setup|development|production) ;;
   -h|--help) echo "Usage: $0 [setup|development|production]"; exit 0 ;;

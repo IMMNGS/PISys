@@ -63,18 +63,18 @@ The Patient Information System is a full-stack web application for managing pati
 └────────┬──────────────────────────────┬──────────────────────────┘
          │  SQLAlchemy (PyMySQL)        │  Filesystem I/O
          ▼                              ▼
-┌─────────────────┐          ┌─────────────────────┐
-│    MySQL 8.0+   │          │   data/vcf/<lab>/   │
-│  patient_db     │          │  VCF file storage   │
-│                 │          │  (local or NFS/S3)  │
-└─────────────────┘          └─────────────────────┘
+┌─────────────────┐          ┌───────────────────────────────┐
+│    MySQL 8.0+   │          │ data/vcf/<lab>/               │
+│  patient_db     │          │ data/variant_uploads/<lab>/   │
+│                 │          │ file storage (local or NFS/S3)│
+└─────────────────┘          └───────────────────────────────┘
 ```
 
 **Key design decisions:**
 
 - **Application factory pattern** (`create_app()`) for testability and flexible configuration.
-- **Single database** (`patient_db`) holding all tables — patients, HPO terms, singletons, trios, VCF metadata, and the many-to-many join table.
-- **File storage** for VCF files is on disk under a configurable `DATA_DIR`/`VCF_DIR`, enabling future migration to network-mounted or cloud-fuse storage.
+- **Single database** (`patient_db`) holding all tables — patients, HPO terms, singletons, trios, VCF metadata, retained variant upload metadata, and the many-to-many join table.
+- **File storage** for VCF files and original singleton/trio upload files is on disk under configurable directories derived from `DATA_DIR`, enabling future migration to network-mounted or cloud-fuse storage.
 - **SPA fallback**: In production, Flask serves the built React app from `frontend/dist/`. During development, Vite's dev server on port 3000 proxies `/api` requests to Flask on port 5001.
 - **Production-ready**: Gunicorn WSGI server with configurable workers, threads, and timeouts. Environment-based configuration selects `DevelopmentConfig` or `ProductionConfig`.
 
@@ -109,7 +109,8 @@ HA/
 │
 ├── data/                         # Data directory (configurable via DATA_DIR)
 │   ├── all_hpo_terms.csv         # ~19,500 HPO terms (loadable via Manage HPO page)
-│   └── vcf/                      # Patient VCF files (one subfolder per lab_number)
+│   ├── vcf/                      # Patient VCF files (one subfolder per lab_number)
+│   └── variant_uploads/          # Raw singleton/trio XLSX uploads (per patient, per type)
 │
 ├── frontend/                     # React + TypeScript SPA (Vite)
 │   ├── index.html                # HTML entry-point
@@ -162,7 +163,7 @@ The `run.sh setup` step performs the following steps:
 2. **Virtual environment** — creates/activates a `.venv` directory.
 3. **Python dependencies** — `pip install -r requirements.txt`.
 4. **MySQL database** — creates the `patient_db` database (or the database named by `MYSQL_DB`) when `mysql` CLI is present.
-5. **Data directories** — creates `data/` and `data/vcf/`.
+5. **Data directories** — creates `data/`, `data/vcf/`, and `data/variant_uploads/`.
 6. **Frontend build** — runs `npm install && npm run build` in `frontend/`.
 
 After setup, start the server:
@@ -238,18 +239,19 @@ The production server binds to `0.0.0.0:8000` by default.
 
 All configuration is centralized in `backend/config.py` via a class hierarchy (`Config` → `DevelopmentConfig` / `ProductionConfig`). The active config is selected by the `FLASK_ENV` environment variable. Every setting can be overridden with environment variables.
 
-| Setting              | Env Var          | Default                               | Description                                     |
-| -------------------- | ---------------- | ------------------------------------- | ----------------------------------------------- |
-| `FLASK_ENV`          | `FLASK_ENV`      | `development`                         | Config selection: `development` or `production` |
-| `SECRET_KEY`         | `SECRET_KEY`     | `dev-secret-key-change-in-production` | Flask secret key (**required** in production)   |
-| `MYSQL_USER`         | `MYSQL_USER`     | `root`                                | MySQL username                                  |
-| `MYSQL_PASSWORD`     | `MYSQL_PASSWORD` | (empty)                               | MySQL password                                  |
-| `MYSQL_HOST`         | `MYSQL_HOST`     | `localhost`                           | MySQL hostname                                  |
-| `MYSQL_PORT`         | `MYSQL_PORT`     | `3306`                                | MySQL port                                      |
-| `MYSQL_DB`           | `MYSQL_DB`       | `patient_db`                          | Database name                                   |
-| `DATA_DIR`           | `DATA_DIR`       | `<project_root>/data`                 | Root data directory for VCF files and CSV data  |
-| `MAX_CONTENT_LENGTH` | `MAX_UPLOAD_MB`  | `5000` MB                             | Maximum upload file size                        |
-| `CORS_ORIGINS`       | `CORS_ORIGINS`   | (none)                                | Comma-separated allowed origins (production)    |
+| Setting              | Env Var          | Default                               | Description                                                    |
+| -------------------- | ---------------- | ------------------------------------- | -------------------------------------------------------------- |
+| `FLASK_ENV`          | `FLASK_ENV`      | `development`                         | Config selection: `development` or `production`                |
+| `SECRET_KEY`         | `SECRET_KEY`     | `dev-secret-key-change-in-production` | Flask secret key (**required** in production)                  |
+| `MYSQL_USER`         | `MYSQL_USER`     | `root`                                | MySQL username                                                 |
+| `MYSQL_PASSWORD`     | `MYSQL_PASSWORD` | (empty)                               | MySQL password                                                 |
+| `MYSQL_HOST`         | `MYSQL_HOST`     | `localhost`                           | MySQL hostname                                                 |
+| `MYSQL_PORT`         | `MYSQL_PORT`     | `3306`                                | MySQL port                                                     |
+| `MYSQL_DB`           | `MYSQL_DB`       | `patient_db`                          | Database name                                                  |
+| `DATA_DIR`           | `DATA_DIR`       | `<project_root>/data`                 | Root data directory for VCF, raw variant uploads, and CSV data |
+| `VARIANT_UPLOAD_DIR` | (derived)        | `DATA_DIR/variant_uploads`            | Storage directory for original singleton/trio XLSX uploads     |
+| `MAX_CONTENT_LENGTH` | `MAX_UPLOAD_MB`  | `5000` MB                             | Maximum upload file size                                       |
+| `CORS_ORIGINS`       | `CORS_ORIGINS`   | (none)                                | Comma-separated allowed origins (production)                   |
 
 The `SQLALCHEMY_DATABASE_URI` is constructed automatically from the MySQL settings:
 
@@ -258,6 +260,8 @@ mysql+pymysql://<user>:<password>@<host>:<port>/<db>
 ```
 
 `VCF_DIR` is derived as `DATA_DIR/vcf/`.
+
+`VARIANT_UPLOAD_DIR` is derived as `DATA_DIR/variant_uploads/`.
 
 ---
 
@@ -277,7 +281,7 @@ All tables reside in a single MySQL database (`patient_db` by default). SQLAlche
 │ definition      │       │ id (PK)            │       │ hkid, dob, sex  │
 │ synonyms        │       └────────────────────┘       │ age, age_unit   │
 └─────────────────┘                                    │ ethnicity       │
-                                                       │ case_history    │
+                                                       │ clinical_history│
                     ┌─────────────────────┐            │ type_of_test    │
                     │    singleton        │            │ type_of_findings│
                     │─────────────────────│            │ findings_summary│
@@ -311,6 +315,19 @@ All tables reside in a single MySQL database (`patient_db` by default). SQLAlche
                     │ file_size           │
                     │ uploaded_at         │
                     └─────────────────────┘
+                                                               │
+                    ┌─────────────────────┐                    │
+                    │  variant_uploads    │                    │
+                    │─────────────────────│                    │
+                    │ id (PK)             │                    │
+                    │ patient_id (FK) ────┼────────────────────┘
+                    │ file_type           │
+                    │ original_filename   │
+                    │ stored_filename     │
+                    │ relative_path       │
+                    │ file_size           │
+                    │ uploaded_at         │
+                    └─────────────────────┘
 ```
 
 ### Table Details
@@ -319,31 +336,31 @@ All tables reside in a single MySQL database (`patient_db` by default). SQLAlche
 
 Primary entity representing a patient record.
 
-| Column               | Type           | Constraints           | Description                                      |
-| -------------------- | -------------- | --------------------- | ------------------------------------------------ |
-| `id`                 | `INTEGER`      | PK, auto-increment    | Internal surrogate key                           |
-| `lab_number`         | `VARCHAR(100)` | UNIQUE, NOT NULL, IDX | Unique lab identifier (e.g., `LAB-001`)          |
-| `im_lab_number`      | `VARCHAR(100)` | nullable              | Internal medicine lab reference                  |
-| `name`               | `VARCHAR(200)` | nullable              | Patient full name                                |
-| `hkid`               | `VARCHAR(50)`  | nullable              | Hong Kong Identity Card number                   |
-| `dob`                | `DATE`         | nullable              | Date of birth                                    |
-| `sex`                | `VARCHAR(20)`  | nullable              | "Male" / "Female"                                |
-| `age`                | `INTEGER`      | nullable              | Patient age (numeric)                            |
-| `age_unit`           | `VARCHAR(20)`  | nullable              | "Years" / "Months" / "Days"                      |
-| `ethnicity`          | `VARCHAR(100)` | nullable              | Patient ethnicity                                |
-| `specimen_collected` | `DATE`         | nullable              | Date specimen was collected                      |
-| `specimen_arrived`   | `DATE`         | nullable              | Date specimen arrived at lab                     |
-| `case_history`       | `TEXT`         | nullable              | Clinical case history description                |
-| `type_of_test`       | `VARCHAR(200)` | nullable              | Test type (e.g., "WES", "BRCA Panel")            |
-| `type_of_findings`   | `VARCHAR(200)` | nullable              | "Positive" / "VUS" / "Negative" / "Inconclusive" |
-| `findings_summary`   | `TEXT`         | nullable              | Summary of test findings                         |
-| `ngs_batch`          | `VARCHAR(100)` | nullable              | NGS batch identifier                             |
-| `ngs_tat`            | `VARCHAR(100)` | nullable              | Turnaround time                                  |
-| `ngs_tat_final`      | `VARCHAR(100)` | nullable              | Final turnaround time                            |
-| `request_dr`         | `VARCHAR(200)` | nullable              | Requesting physician                             |
-| `remark`             | `TEXT`         | nullable              | Free-text remarks                                |
-| `report_date`        | `DATE`         | nullable              | Date the report was issued                       |
-| `created_at`         | `DATETIME`     | default `utcnow`      | Row creation timestamp                           |
+| Column               | Type           | Constraints           | Description                                             |
+| -------------------- | -------------- | --------------------- | ------------------------------------------------------- |
+| `id`                 | `INTEGER`      | PK, auto-increment    | Internal surrogate key                                  |
+| `lab_number`         | `VARCHAR(100)` | UNIQUE, NOT NULL, IDX | Unique lab identifier (e.g., `LAB-001`)                 |
+| `im_lab_number`      | `VARCHAR(100)` | nullable              | Internal medicine lab reference                         |
+| `name`               | `VARCHAR(200)` | nullable              | Patient full name                                       |
+| `hkid`               | `VARCHAR(50)`  | nullable              | Hong Kong Identity Card number                          |
+| `dob`                | `DATE`         | nullable              | Date of birth                                           |
+| `sex`                | `VARCHAR(20)`  | nullable              | "Male" / "Female"                                       |
+| `age`                | `INTEGER`      | nullable              | Patient age (numeric)                                   |
+| `age_unit`           | `VARCHAR(20)`  | nullable              | "Years" / "Months" / "Days"                             |
+| `ethnicity`          | `VARCHAR(100)` | nullable              | Patient ethnicity                                       |
+| `specimen_collected` | `DATE`         | nullable              | Date specimen was collected                             |
+| `specimen_arrived`   | `DATE`         | nullable              | Date specimen arrived at lab                            |
+| `clinical_history`   | `TEXT`         | nullable              | Clinical history description (DB column `case_history`) |
+| `type_of_test`       | `VARCHAR(200)` | nullable              | Test type (e.g., "WES", "BRCA Panel")                   |
+| `type_of_findings`   | `VARCHAR(200)` | nullable              | "Positive" / "VUS" / "Negative" / "Inconclusive"        |
+| `findings_summary`   | `TEXT`         | nullable              | Summary of test findings                                |
+| `ngs_batch`          | `VARCHAR(100)` | nullable              | NGS batch identifier                                    |
+| `ngs_tat`            | `VARCHAR(100)` | nullable              | Turnaround time                                         |
+| `ngs_tat_final`      | `VARCHAR(100)` | nullable              | Final turnaround time                                   |
+| `request_dr`         | `VARCHAR(200)` | nullable              | Requesting physician                                    |
+| `remark`             | `TEXT`         | nullable              | Free-text remarks                                       |
+| `report_date`        | `DATE`         | nullable              | Date the report was issued                              |
+| `created_at`         | `DATETIME`     | default `utcnow`      | Row creation timestamp                                  |
 
 **Relationships:**
 
@@ -677,13 +694,13 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 
 **Blueprint:** `singletons_bp` (name: `"singletons"`)
 
-| Method | Endpoint                                      | Handler                 | Description                                        |
-| ------ | --------------------------------------------- | ----------------------- | -------------------------------------------------- |
-| GET    | `/api/patients/<patient_id>/singletons`       | `list_singletons`       | List singletons (optional `?reportable_variant=C`) |
-| POST   | `/api/patients/<patient_id>/singletons`       | `create_singleton`      | Create a singleton (JSON body)                     |
-| PUT    | `/api/singletons/<singleton_id>`              | `update_singleton`      | Update a singleton (JSON body)                     |
-| DELETE | `/api/singletons/<singleton_id>`              | `delete_singleton`      | Delete a singleton                                 |
-| POST   | `/api/patients/<patient_id>/upload/singleton` | `upload_singleton_xlsx` | Import singletons from XLSX                        |
+| Method | Endpoint                                      | Handler                 | Description                                          |
+| ------ | --------------------------------------------- | ----------------------- | ---------------------------------------------------- |
+| GET    | `/api/patients/<patient_id>/singletons`       | `list_singletons`       | List singletons (optional `?reportable_variant=C`)   |
+| POST   | `/api/patients/<patient_id>/singletons`       | `create_singleton`      | Create a singleton (JSON body)                       |
+| PUT    | `/api/singletons/<singleton_id>`              | `update_singleton`      | Update a singleton (JSON body)                       |
+| DELETE | `/api/singletons/<singleton_id>`              | `delete_singleton`      | Delete a singleton                                   |
+| POST   | `/api/patients/<patient_id>/upload/singleton` | `upload_singleton_xlsx` | Import singletons from XLSX and retain original file |
 
 **`GET /api/patients/<patient_id>/singletons`**
 
@@ -699,6 +716,8 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 **XLSX Import (`POST .../upload/singleton`):**
 
 - Accepts `.xlsx` / `.xls` files via multipart form.
+- Persists the original uploaded file to disk under `VARIANT_UPLOAD_DIR/<lab_number>/singleton/`.
+- Stores raw-upload metadata in `variant_uploads`.
 - Column headers are fuzzy-matched to DB fields via `auto_map_variant_columns()` — handles names like `"Gene Names"`, `"HGVS c. (Clinically Relevant)"`, `"Second review and comment on reportable variant "`, etc.
 - Rows with only `None` / NaN values are skipped.
 - Returns `{ message, count }` with HTTP 201.
@@ -707,15 +726,15 @@ Query params: `search` (filters by HPO ID, term name, or synonyms), `page` (defa
 
 **Blueprint:** `trios_bp` (name: `"trios"`)
 
-| Method | Endpoint                                 | Handler            | Description                                   |
-| ------ | ---------------------------------------- | ------------------ | --------------------------------------------- |
-| GET    | `/api/patients/<patient_id>/trios`       | `list_trios`       | List trios (optional `?reportable_variant=C`) |
-| POST   | `/api/patients/<patient_id>/trios`       | `create_trio`      | Create a trio (JSON body)                     |
-| PUT    | `/api/trios/<trio_id>`                   | `update_trio`      | Update a trio (JSON body)                     |
-| DELETE | `/api/trios/<trio_id>`                   | `delete_trio`      | Delete a trio                                 |
-| POST   | `/api/patients/<patient_id>/upload/trio` | `upload_trio_xlsx` | Import trios from XLSX                        |
+| Method | Endpoint                                 | Handler            | Description                                     |
+| ------ | ---------------------------------------- | ------------------ | ----------------------------------------------- |
+| GET    | `/api/patients/<patient_id>/trios`       | `list_trios`       | List trios (optional `?reportable_variant=C`)   |
+| POST   | `/api/patients/<patient_id>/trios`       | `create_trio`      | Create a trio (JSON body)                       |
+| PUT    | `/api/trios/<trio_id>`                   | `update_trio`      | Update a trio (JSON body)                       |
+| DELETE | `/api/trios/<trio_id>`                   | `delete_trio`      | Delete a trio                                   |
+| POST   | `/api/patients/<patient_id>/upload/trio` | `upload_trio_xlsx` | Import trios from XLSX and retain original file |
 
-Mirrors the singleton routes with identical structure and XLSX import behavior. Includes the same `reportable_variant` query filter and fuzzy column mapping.
+Mirrors the singleton routes with identical structure and XLSX import behavior. Includes the same `reportable_variant` query filter, fuzzy column mapping, raw file persistence, and upload metadata recording.
 
 ### 6.11 VCF Routes — `backend/routes/vcf.py`
 
@@ -807,8 +826,8 @@ Returns the `.docx` as a downloadable attachment named `report_<lab_number>_<im_
 
 **Key helper functions:**
 
-- `get_test_description(test_type)` — returns the panel test description blurb, appending "Trio analysis was performed" when `test_type == "trio"`.
-- `get_summary_result(patient)` — generates summary text from the patient's `type_of_findings` and variant data:
+- `_get_test_description(test_type)` — returns the panel test description blurb, appending "Trio analysis was performed" when `test_type == "trio"`.
+- `_get_summary_result(patient)` — generates summary text from the patient's `type_of_findings` and variant data:
   - `C` → counts confirmed variants and names the gene(s).
   - `A` → "No disease-causing variant detected... additional findings included."
   - `I` / `N` → "No disease-causing variant detected."
@@ -1173,9 +1192,15 @@ The `data/` directory is the default location for persistent data files:
 data/
 ├── all_hpo_terms.csv         # ~19,500 HPO terms (CSV seed source)
 │                              # Columns: hpo_id, term_name, definition, synonyms
-└── vcf/                      # VCF file storage
-    └── <lab_number>/         # Per-patient subdirectory
-        └── *.vcf / *.vcf.gz / *.bcf
+├── vcf/                      # VCF file storage
+│   └── <lab_number>/         # Per-patient subdirectory
+│       └── *.vcf / *.vcf.gz / *.bcf
+└── variant_uploads/          # Raw singleton/trio variant uploads
+   └── <lab_number>/
+      ├── singleton/
+      │   └── *.xlsx / *.xls
+      └── trio/
+         └── *.xlsx / *.xls
 ```
 
 The entire `data/` directory can be relocated by setting the `DATA_DIR` environment variable. This enables:
@@ -1188,27 +1213,28 @@ The entire `data/` directory can be relocated by setting the `DATA_DIR` environm
 
 ## 10. Environment Variables Reference
 
-| Variable                    | Default               | Used In            | Description                         |
-| --------------------------- | --------------------- | ------------------ | ----------------------------------- |
-| `FLASK_ENV`                 | `development`         | `run.py`           | Config selection (dev/production)   |
-| `SECRET_KEY`                | `dev-secret-key-...`  | `config.py`        | Flask session secret key            |
-| `MYSQL_USER`                | `root`                | `config.py`        | MySQL username                      |
-| `MYSQL_PASSWORD`            | (empty)               | `config.py`        | MySQL password                      |
-| `MYSQL_HOST`                | `localhost`           | `config.py`        | MySQL host                          |
-| `MYSQL_PORT`                | `3306`                | `config.py`        | MySQL port                          |
-| `MYSQL_DB`                  | `patient_db`          | `config.py`        | MySQL database name                 |
-| `DATA_DIR`                  | `<project_root>/data` | `config.py`        | Root directory for VCF & data files |
-| `MAX_UPLOAD_MB`             | `5000`                | `config.py`        | Maximum upload size in megabytes    |
-| `CORS_ORIGINS`              | (none)                | `app.py`           | Comma-separated allowed origins     |
-| `GUNICORN_BIND`             | `0.0.0.0:8000`        | `gunicorn.conf.py` | Server bind address                 |
-| `GUNICORN_WORKERS`          | `(CPUs × 2) + 1`      | `gunicorn.conf.py` | Number of worker processes          |
-| `GUNICORN_WORKER_CLASS`     | `gthread`             | `gunicorn.conf.py` | Worker type                         |
-| `GUNICORN_THREADS`          | `4`                   | `gunicorn.conf.py` | Threads per worker                  |
-| `GUNICORN_TIMEOUT`          | `120`                 | `gunicorn.conf.py` | Worker timeout (seconds)            |
-| `GUNICORN_GRACEFUL_TIMEOUT` | `30`                  | `gunicorn.conf.py` | Graceful shutdown timeout           |
-| `GUNICORN_ACCESS_LOG`       | `-` (stdout)          | `gunicorn.conf.py` | Access log destination              |
-| `GUNICORN_ERROR_LOG`        | `-` (stderr)          | `gunicorn.conf.py` | Error log destination               |
-| `GUNICORN_LOG_LEVEL`        | `info`                | `gunicorn.conf.py` | Log verbosity                       |
+| Variable                    | Default                    | Used In            | Description                                                 |
+| --------------------------- | -------------------------- | ------------------ | ----------------------------------------------------------- |
+| `FLASK_ENV`                 | `development`              | `run.py`           | Config selection (dev/production)                           |
+| `SECRET_KEY`                | `dev-secret-key-...`       | `config.py`        | Flask session secret key                                    |
+| `MYSQL_USER`                | `root`                     | `config.py`        | MySQL username                                              |
+| `MYSQL_PASSWORD`            | (empty)                    | `config.py`        | MySQL password                                              |
+| `MYSQL_HOST`                | `localhost`                | `config.py`        | MySQL host                                                  |
+| `MYSQL_PORT`                | `3306`                     | `config.py`        | MySQL port                                                  |
+| `MYSQL_DB`                  | `patient_db`               | `config.py`        | MySQL database name                                         |
+| `DATA_DIR`                  | `<project_root>/data`      | `config.py`        | Root directory for VCF, raw variant uploads, and data files |
+| `VARIANT_UPLOAD_DIR`        | `DATA_DIR/variant_uploads` | `config.py`        | Raw singleton/trio upload storage path (derived)            |
+| `MAX_UPLOAD_MB`             | `5000`                     | `config.py`        | Maximum upload size in megabytes                            |
+| `CORS_ORIGINS`              | (none)                     | `app.py`           | Comma-separated allowed origins                             |
+| `GUNICORN_BIND`             | `0.0.0.0:8000`             | `gunicorn.conf.py` | Server bind address                                         |
+| `GUNICORN_WORKERS`          | `(CPUs × 2) + 1`           | `gunicorn.conf.py` | Number of worker processes                                  |
+| `GUNICORN_WORKER_CLASS`     | `gthread`                  | `gunicorn.conf.py` | Worker type                                                 |
+| `GUNICORN_THREADS`          | `4`                        | `gunicorn.conf.py` | Threads per worker                                          |
+| `GUNICORN_TIMEOUT`          | `120`                      | `gunicorn.conf.py` | Worker timeout (seconds)                                    |
+| `GUNICORN_GRACEFUL_TIMEOUT` | `30`                       | `gunicorn.conf.py` | Graceful shutdown timeout                                   |
+| `GUNICORN_ACCESS_LOG`       | `-` (stdout)               | `gunicorn.conf.py` | Access log destination                                      |
+| `GUNICORN_ERROR_LOG`        | `-` (stderr)               | `gunicorn.conf.py` | Error log destination                                       |
+| `GUNICORN_LOG_LEVEL`        | `info`                     | `gunicorn.conf.py` | Log verbosity                                               |
 
 ---
 

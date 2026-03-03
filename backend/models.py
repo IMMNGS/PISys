@@ -76,12 +76,27 @@ class Patient(db.Model):
     vcf_files = db.relationship("VcfFile", backref="patient", lazy="dynamic",
                                 cascade="all, delete-orphan")
 
+    # One-to-many: a patient can have many uploaded raw variant files
+    variant_uploads = db.relationship(
+        "VariantUpload", backref="patient", lazy="dynamic",
+        cascade="all, delete-orphan"
+    )
+
     # Many-to-many: a patient can have many HPO terms
     hpo_terms = db.relationship("HPOTerm", secondary=patient_hpo, lazy="select",
                                 backref=db.backref("patients", lazy="dynamic"))
 
+    @property
+    def clinical_history(self):
+        return self.case_history
+
+    @clinical_history.setter
+    def clinical_history(self, value):
+        self.case_history = value
+
     def to_dict(self, include_hpo=True, include_singletons=False,
-                include_trios=False, include_vcf_files=False):
+                include_trios=False, include_vcf_files=False,
+                include_variant_uploads=False):
         data = {
             "id": self.id,
             "report_date": self.report_date.isoformat() if self.report_date else None,
@@ -96,6 +111,7 @@ class Patient(db.Model):
             "ethnicity": self.ethnicity,
             "specimen_collected": self.specimen_collected.isoformat() if self.specimen_collected else None,
             "specimen_arrived": self.specimen_arrived.isoformat() if self.specimen_arrived else None,
+            "clinical_history": self.clinical_history,
             "case_history": self.case_history,
             "type_of_test": self.type_of_test,
             "type_of_findings": self.type_of_findings,
@@ -121,6 +137,10 @@ class Patient(db.Model):
             data["vcf_files"] = [v.to_dict() for v in self.vcf_files]
         else:
             data["vcf_files"] = []
+        if include_variant_uploads:
+            data["variant_uploads"] = [v.to_dict() for v in self.variant_uploads]
+        else:
+            data["variant_uploads"] = []
         return data
 
 
@@ -249,6 +269,36 @@ class VcfFile(db.Model):
             "id": self.id,
             "patient_id": self.patient_id,
             "filename": self.filename,
+            "relative_path": self.relative_path,
+            "file_size": self.file_size,
+            "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
+        }
+
+
+class VariantUpload(db.Model):
+    """Tracks raw uploaded singleton/trio spreadsheet files.
+
+    The binary file lives on disk under VARIANT_UPLOAD_DIR; this table stores
+    metadata and relative path for audit/reprocessing.
+    """
+    __tablename__ = "variant_uploads"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=False, index=True)
+    file_type = db.Column(db.String(20), nullable=False)  # singleton | trio
+    original_filename = db.Column(db.String(500), nullable=False)
+    stored_filename = db.Column(db.String(500), nullable=False)
+    relative_path = db.Column(db.String(1000), nullable=False)
+    file_size = db.Column(db.BigInteger, nullable=True)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "file_type": self.file_type,
+            "original_filename": self.original_filename,
+            "stored_filename": self.stored_filename,
             "relative_path": self.relative_path,
             "file_size": self.file_size,
             "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,

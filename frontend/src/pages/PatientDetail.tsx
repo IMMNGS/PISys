@@ -96,8 +96,8 @@ export default function PatientDetail() {
             <table>
               <tbody>
                 <tr>
-                  <th>Case History</th>
-                  <td>{patient.case_history ?? "—"}</td>
+                  <th>Clinical History</th>
+                  <td>{patient.clinical_history ?? patient.case_history ?? "—"}</td>
                 </tr>
                 <tr>
                   <th>Type of Test</th>

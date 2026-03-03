@@ -79,7 +79,8 @@ export interface PatientInfo {
   ethnicity: string | null;
   specimen_collected: string | null;
   specimen_arrived: string | null;
-  case_history: string | null;
+  clinical_history?: string | null;
+  case_history?: string | null;
   type_of_test: string | null;
   type_of_findings: string | null;
   findings_summary: string | null;

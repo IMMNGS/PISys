@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import {
   fetchReportPreview,
   downloadReport,
@@ -16,6 +17,9 @@ export default function Report() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoLoadFromParams, setAutoLoadFromParams] = useState(false);
+
+  const location = useLocation();
 
   // Editable text fields
   const [conclusion, setConclusion] = useState("");
@@ -54,6 +58,29 @@ export default function Report() {
       setLoading(false);
     }
   };
+
+  // Parse query params for automatic behaviour
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const ln = params.get("lab_number");
+    const tt = params.get("test_type");
+    const auto = params.get("auto_preview");
+    if (ln) setLabNumber(ln);
+    if (tt === "trio" || tt === "singleton") setTestType(tt as TestType);
+    // Only auto-load preview when explicitly requested by the navigator
+    if (ln && auto === "1") setAutoLoadFromParams(true);
+  }, [location.search]);
+
+  // When params set labNumber/testType, auto-load preview
+  useEffect(() => {
+    if (autoLoadFromParams && labNumber.trim()) {
+      // call preview and then clear flag to avoid repeated calls
+      handlePreview();
+      setAutoLoadFromParams(false);
+    }
+  }, [autoLoadFromParams, labNumber, testType]);
+
+  // (no automatic download) After preview loads we do nothing — user must click Generate
 
   const handleGenerate = async () => {
     if (!preview) return;
@@ -180,7 +207,7 @@ export default function Report() {
             <div className="card-header">Testing Information</div>
             <div className="card-body">
               <p>
-                <strong>Case History:</strong> {patient.case_history || "—"}
+                <strong>Clinical History:</strong> {patient.clinical_history || patient.case_history || "—"}
               </p>
               <p>
                 <strong>Type of Test:</strong> {patient.type_of_test || "—"}

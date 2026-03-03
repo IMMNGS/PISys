@@ -1,5 +1,6 @@
 """Shared helpers and constants used across route modules."""
 
+import math
 import re
 from difflib import SequenceMatcher
 
@@ -109,12 +110,67 @@ def _parse_variant_xlsx_rows(file_storage):
     return result
 
 
+def _normalize_variant_field(field, value):
+    """Normalize a single variant field value before DB persistence."""
+    if value is None:
+        return None
+
+    if isinstance(value, float) and math.isnan(value):
+        return None
+
+    if field == "igv_review":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if not text:
+                return None
+            if text in {"true", "1", "yes", "y", "t"}:
+                return True
+            if text in {"false", "0", "no", "n", "f"}:
+                return False
+        return None
+
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+        if field == "reportable_variant":
+            return value.upper()
+        return value
+
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+
+    return str(value).strip() or None
+
+
+def normalize_variant_row(row, fields):
+    """Normalize a parsed variant row to canonical DB-ready values."""
+    normalized = {}
+    for field in fields:
+        val = row.get(field)
+        val = _normalize_variant_field(field, val)
+        if val is not None:
+            normalized[field] = val
+
+    # Legacy files may provide OMIM in either column; keep both populated.
+    if normalized.get("omim_id") and not normalized.get("omimid"):
+        normalized["omimid"] = normalized["omim_id"]
+    elif normalized.get("omimid") and not normalized.get("omim_id"):
+        normalized["omim_id"] = normalized["omimid"]
+
+    return normalized
+
+
 # ── Field definitions ────────────────────────────────────────────────────
 
 PATIENT_FIELDS = (
     "lab_number", "im_lab_number", "name", "hkid", "dob", "sex", "age",
     "age_unit", "ethnicity", "specimen_collected", "specimen_arrived",
-    "case_history", "type_of_test", "type_of_findings", "findings_summary",
+    "clinical_history", "type_of_test", "type_of_findings", "findings_summary",
     "ngs_batch", "ngs_tat", "ngs_tat_final", "request_dr", "remark",
     "report_date",
 )
@@ -171,7 +227,7 @@ def get_available_patient_fields():
         "specimen_collected": "Specimen Collected Date",
         "specimen_arrived": "Specimen Arrived Date",
         "report_date": "Report Date",
-        "case_history": "Case History",
+        "clinical_history": "Clinical History",
         "type_of_test": "Type of Test",
         "type_of_findings": "Type of Findings",
         "ngs_batch": "NGS Batch",
@@ -213,7 +269,7 @@ _PATIENT_FIELD_VARIATIONS = {
         "arrived date", "sample receive date",
     ],
     "report_date": ["report date", "report_date", "reported date", "reporting date"],
-    "case_history": [
+    "clinical_history": [
         "Case", "case history", "Clinical_Detail", "case_history",
         "clinical history", "clinical_history", "history", "diagnosis",
     ],

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   fetchPatients,
   fetchPatientOptions as fetchPatientOptionsApi,
@@ -50,6 +51,12 @@ export default function Upload() {
   const patientFileRef = useRef<HTMLInputElement>(null);
   const [patientUploading, setPatientUploading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [lastUploaded, setLastUploaded] = useState<{
+    labNumber?: string;
+    testType?: UploadType;
+  } | null>(null);
+
+  const navigate = useNavigate();
 
   const reloadPatients = () => fetchPatients("").then(setPatients);
 
@@ -133,12 +140,26 @@ export default function Upload() {
         await uploadVcfFile(patientId, file);
         setStatus({ type: "success", msg: `VCF uploaded: ${file.name}` });
         fetchVcfFiles(patientId).then(setVcfFiles);
+
+        // remember last upload for quick report generation
+        setLastUploaded({
+          labNumber: selectedPatient?.lab_number,
+          testType: uploadType,
+        });
       } else if (uploadType === "singleton") {
         const r = await uploadSingletonXlsx(patientId, file);
         setStatus({ type: "success", msg: r.message });
+        setLastUploaded({
+          labNumber: selectedPatient?.lab_number,
+          testType: uploadType,
+        });
       } else {
         const r = await uploadTrioXlsx(patientId, file);
         setStatus({ type: "success", msg: r.message });
+        setLastUploaded({
+          labNumber: selectedPatient?.lab_number,
+          testType: uploadType,
+        });
       }
       if (fileRef.current) fileRef.current.value = "";
     } catch (e: unknown) {
@@ -220,7 +241,9 @@ export default function Upload() {
 
       {/* ── Patient selector ───────────────────────────────────────── */}
       <div className="card mb-2">
-        <div className="card-header primary">Choose a Patient to Upload Variant Files For</div>
+        <div className="card-header primary">
+          Choose a Patient to Upload Variant Files For
+        </div>
         <div className="card-body">
           <p className="text-muted mb-1" style={{ fontSize: "0.85rem" }}>
             Search by lab number or name.
@@ -286,6 +309,23 @@ export default function Upload() {
             >
               {uploading ? "Uploading…" : "Upload"}
             </button>
+            <button
+              className="btn btn-secondary mt-1 ml-2"
+              style={{ marginLeft: "0.5rem" }}
+              disabled={!lastUploaded?.labNumber}
+              onClick={() => {
+                if (!lastUploaded?.labNumber) return;
+                const reportType =
+                  lastUploaded.testType === "trio" ? "trio" : "singleton";
+                const params = new URLSearchParams({
+                  lab_number: lastUploaded.labNumber,
+                  test_type: reportType,
+                });
+                navigate(`/report?${params.toString()}`);
+              }}
+            >
+              Generate Report
+            </button>
 
             {/* ── Contextual guidance per file type ── */}
             <div
@@ -302,22 +342,23 @@ export default function Upload() {
                 <>
                   <strong style={{ display: "block", marginBottom: "0.35rem" }}>
                     Raw Variant Call File
-                  </strong>
-                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
-                    Upload the patient's <strong>.vcf</strong>,{" "}
-                    <strong>.vcf.gz</strong>, or <strong>.bcf</strong> file
-                    produced by your variant calling pipeline (e.g. GATK
-                    HaplotypeCaller, DeepVariant, Dragen).
-                  </p>
-                  <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
-                    The file is saved on the server under{" "}
-                    <code>data/vcf/&lt;lab_number&gt;/</code>. Multiple VCF
-                    files per patient are supported — they appear in the table
-                    below and can be individually deleted.
-                  </p>
-                  <p className="text-muted" style={{ marginBottom: 0 }}>
-                    For remote storage, set the <code>DATA_DIR</code>{" "}
-                    environment variable to a network mount (NFS, SSHFS,
+                  <button
+                    className="btn btn-secondary mt-1 ml-2"
+                    style={{ marginLeft: "0.5rem" }}
+                    disabled={!lastUploaded?.labNumber}
+                    onClick={() => {
+                      if (!lastUploaded?.labNumber) return;
+                      const reportType = lastUploaded.testType === "trio" ? "trio" : "singleton";
+                      const params = new URLSearchParams({
+                        lab_number: lastUploaded.labNumber,
+                        test_type: reportType,
+                        auto_preview: "1",
+                      });
+                      navigate(`/report?${params.toString()}`);
+                    }}
+                  >
+                    Generate Report
+                  </button>
                     S3-Fuse, etc.) so files are written there instead of local
                     disk.
                   </p>
@@ -363,7 +404,8 @@ export default function Upload() {
                   <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
                     Upload an <strong>.xlsx</strong> file containing trio
                     analysis variant findings (proband + parents). Each row
-                    becomes a Trio variant record linked to the selected patient.
+                    becomes a Trio variant record linked to the selected
+                    patient.
                   </p>
                   <p className="text-muted" style={{ marginBottom: "0.4rem" }}>
                     <strong>Recognised columns:</strong>{" "}

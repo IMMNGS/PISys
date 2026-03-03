@@ -14,7 +14,7 @@ HA/
 │   ├── __init__.py
 │   ├── app.py               # Flask factory – serves API + built SPA
 │   ├── config.py             # MySQL & app configuration (env-var driven)
-│   ├── models.py             # SQLAlchemy models (patients, hpo_terms, singleton, trio, vcf_files, patient_hpo)
+│   ├── models.py             # SQLAlchemy models (patients, hpo_terms, singleton, trio, vcf_files, variant_uploads, patient_hpo)
 │   └── routes/
 │       ├── __init__.py       # Blueprint registration
 │       ├── helpers.py        # Shared constants & utilities
@@ -28,6 +28,7 @@ HA/
 ├── data/                     # Data directory (local now, remote-mountable in future)
 │   ├── all_hpo_terms.csv     # ~19,500 HPO terms (loadable via Manage HPO page)
 │   └── vcf/                  # VCF files uploaded per patient
+│   └── variant_uploads/       # Original singleton/trio XLSX files (per patient, per file type)
 │
 ├── frontend/                 # React + TypeScript (Vite)
 │   ├── index.html
@@ -75,7 +76,7 @@ The setup script will:
 1. Check prerequisites (Python 3, Node.js, MySQL)
 2. Install Python dependencies
 3. Create the MySQL database
-4. Create data directories (`data/`, `data/vcf/`)
+4. Create data directories (`data/`, `data/vcf/`, `data/variant_uploads/`)
 5. Install frontend dependencies and build the React/TypeScript app
 
 After setup, load HPO terms from the **Manage HPO** page (or `POST /api/hpo_terms/refresh`), then upload patient data via the **Upload** page.
@@ -273,7 +274,7 @@ All Gunicorn settings are configurable via environment variables or `.env`:
 | GET    | `/api/singletons/<id>`                | Get a single singleton finding        |
 | PUT    | `/api/singletons/<id>`                | Update a singleton finding            |
 | DELETE | `/api/singletons/<id>`                | Delete a singleton finding            |
-| POST   | `/api/patients/<id>/upload/singleton` | Import singleton variants from XLSX   |
+| POST   | `/api/patients/<id>/upload/singleton` | Import singleton variants from XLSX and retain the original file on disk |
 
 ### Trio Variants
 
@@ -283,7 +284,7 @@ All Gunicorn settings are configurable via environment variables or `.env`:
 | POST   | `/api/patients/<id>/trios`       | Create a trio finding            |
 | PUT    | `/api/trios/<id>`                | Update a trio finding            |
 | DELETE | `/api/trios/<id>`                | Delete a trio finding            |
-| POST   | `/api/patients/<id>/upload/trio` | Import trio variants from XLSX   |
+| POST   | `/api/patients/<id>/upload/trio` | Import trio variants from XLSX and retain the original file on disk |
 
 ### VCF Files
 
@@ -303,10 +304,11 @@ All Gunicorn settings are configurable via environment variables or `.env`:
 ## Database Schema
 
 - **hpo_terms** — `id`, `hpo_id` (unique), `term_name`, `definition`, `synonyms`
-- **patients** — `id`, `report_date`, `lab_number` (unique), `im_lab_number`, `name`, `hkid`, `dob`, `sex`, `age`, `age_unit`, `ethnicity`, `specimen_collected`, `specimen_arrived`, `case_history`, `type_of_test`, `type_of_findings`, `findings_summary`, `ngs_batch`, `ngs_tat`, `ngs_tat_final`, `request_dr`, `remark`, `created_at`
+- **patients** — `id`, `report_date`, `lab_number` (unique), `im_lab_number`, `name`, `hkid`, `dob`, `sex`, `age`, `age_unit`, `ethnicity`, `specimen_collected`, `specimen_arrived`, `clinical_history` (stored in DB column `case_history`), `type_of_test`, `type_of_findings`, `findings_summary`, `ngs_batch`, `ngs_tat`, `ngs_tat_final`, `request_dr`, `remark`, `created_at`
 - **singleton** — `id`, `patient_id` (FK → patients), `reportable_variant`, `chr_pos`, `ref_alt`, `igv_review`, `second_review_comment`, `gene_names`, `hgvs_c`, `hgvs_p`, `exon_number`, `zygosity`, `inheritance`, `inherited_from`, `classification`, `omim_id`, `rsid`, `title`, `omimid`, `gene_region_combined`, `created_at`
 - **trio** — same columns as singleton
 - **vcf_files** — `id`, `patient_id` (FK → patients), `filename`, `relative_path`, `file_size`, `uploaded_at`
+- **variant_uploads** — `id`, `patient_id` (FK → patients), `file_type` (`singleton`/`trio`), `original_filename`, `stored_filename`, `relative_path`, `file_size`, `uploaded_at`
 - **patient_hpo** — many-to-many join: `id`, `patient_id` (FK → patients), `hpo_term_id` (FK → hpo_terms), `date_added`
 
 ## Data Directory
@@ -315,6 +317,7 @@ The `data/` directory stores reference data and uploaded files:
 
 - `data/all_hpo_terms.csv` — ~19,500 HPO terms (loadable via Manage HPO page or `POST /api/hpo_terms/refresh`)
 - `data/vcf/` — VCF files uploaded per patient (`.vcf`, `.vcf.gz`, `.bcf`)
+- `data/variant_uploads/` — original uploaded singleton/trio variant spreadsheets (`.xlsx`, `.xls`) grouped by patient and file type
 - `data/sample/` — Sample XLSX and VCF files for testing the full upload workflow
 
 The data path is configurable via the `DATA_DIR` environment variable, making it easy to point to a remote/mounted filesystem in production.

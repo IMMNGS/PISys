@@ -1,11 +1,17 @@
 """Singleton variant CRUD and XLSX upload routes."""
 
-from flask import Blueprint, abort, jsonify, request
+import os
+from datetime import datetime, timezone
 
-from backend.models import db, Patient, Singleton
+from flask import Blueprint, abort, jsonify, request, current_app
+from werkzeug.utils import secure_filename
+
+from backend.models import db, Patient, Singleton, VariantUpload
 from backend.routes.helpers import (
     SINGLETON_FIELDS,
     _parse_variant_xlsx_rows,
+    _normalize_variant_field,
+    normalize_variant_row,
 )
 
 singletons_bp = Blueprint("singletons", __name__)
@@ -38,10 +44,7 @@ def create_singleton(patient_id):
     singleton = Singleton(patient_id=patient_id)
     for field in SINGLETON_FIELDS:
         if field in data:
-            val = data[field]
-            # Handle igv_review boolean
-            if field == "igv_review" and isinstance(val, str):
-                val = val.lower() in ("true", "1", "yes")
+            val = _normalize_variant_field(field, data[field])
             setattr(singleton, field, val)
     db.session.add(singleton)
     db.session.commit()
@@ -57,9 +60,7 @@ def update_singleton(singleton_id):
     data = request.get_json()
     for field in SINGLETON_FIELDS:
         if field in data:
-            val = data[field]
-            if field == "igv_review" and isinstance(val, str):
-                val = val.lower() in ("true", "1", "yes")
+            val = _normalize_variant_field(field, data[field])
             setattr(singleton, field, val)
     db.session.commit()
     return jsonify(singleton.to_dict())
@@ -102,27 +103,52 @@ def upload_singleton_xlsx(patient_id):
     if not rows:
         return jsonify({"error": "File is empty or has no data rows"}), 400
 
-    count = 0
-    for row in rows:
-        singleton = Singleton(patient_id=patient_id)
-        has_data = False
-        for field in SINGLETON_FIELDS:
-            val = row.get(field)
-            if val is None:
-                continue
-            # Convert NaN-like values
-            if isinstance(val, float) and str(val).lower() == "nan":
-                continue
-            has_data = True
-            if field == "igv_review":
-                if isinstance(val, str):
-                    val = val.lower() in ("true", "1", "yes")
-                elif isinstance(val, (int, float)):
-                    val = bool(val)
-            setattr(singleton, field, val)
-        if has_data:
-            db.session.add(singleton)
-            count += 1
+    variant_dir = (
+        current_app.config.get("VARIANT_UPLOAD_DIR")
+        or os.path.join(
+            current_app.config.get("DATA_DIR", current_app.instance_path),
+            "variant_uploads",
+        )
+    )
+    patient_dir = os.path.join(variant_dir, patient.lab_number, "singleton")
+    os.makedirs(patient_dir, exist_ok=True)
 
-    db.session.commit()
+    safe_name = secure_filename(f.filename) or "variant.xlsx"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stored_filename = f"{timestamp}_{safe_name}"
+    dest = os.path.join(patient_dir, stored_filename)
+
+    f.stream.seek(0)
+    f.save(dest)
+
+    relative_path = os.path.join(patient.lab_number, "singleton", stored_filename)
+    file_size = os.path.getsize(dest)
+
+    count = 0
+    try:
+        for row in rows:
+            singleton = Singleton(patient_id=patient_id)
+            normalized = normalize_variant_row(row, SINGLETON_FIELDS)
+            if normalized:
+                for field, val in normalized.items():
+                    setattr(singleton, field, val)
+                db.session.add(singleton)
+                count += 1
+
+        upload_record = VariantUpload(
+            patient_id=patient_id,
+            file_type="singleton",
+            original_filename=f.filename,
+            stored_filename=stored_filename,
+            relative_path=relative_path,
+            file_size=file_size,
+        )
+        db.session.add(upload_record)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        if os.path.isfile(dest):
+            os.remove(dest)
+        raise
+
     return jsonify({"message": f"Imported {count} singleton variant(s)", "count": count}), 201

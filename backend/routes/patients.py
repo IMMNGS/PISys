@@ -155,6 +155,8 @@ def get_filter_options():
 def create_patient():
     """Create a new patient."""
     data = request.get_json()
+    if "clinical_history" not in data and "case_history" in data:
+        data["clinical_history"] = data.get("case_history")
     patient = Patient(lab_number=data["lab_number"])
     for field in PATIENT_FIELDS:
         if field != "lab_number" and field in data:
@@ -171,6 +173,8 @@ def update_patient(patient_id):
     if not patient:
         abort(404)
     data = request.get_json()
+    if "clinical_history" not in data and "case_history" in data:
+        data["clinical_history"] = data.get("case_history")
     for field in PATIENT_FIELDS:
         if field in data:
             setattr(patient, field, data[field])
