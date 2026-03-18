@@ -273,34 +273,34 @@ All Gunicorn settings are configurable via environment variables or `.env`:
 
 ### Free-Text Disease Terms
 
-| Method | Endpoint                                      | Description                                                  |
-| ------ | --------------------------------------------- | ------------------------------------------------------------ |
-| GET    | `/api/disease_terms?search=&page=&per_page=`  | Search/paginate free-text disease terms                      |
-| GET    | `/api/disease_terms/options?search=&limit=&offset=` | Lightweight dropdown options for disease terms         |
-| POST   | `/api/disease_terms`                          | Create (or return existing) free-text disease term by name   |
-| GET    | `/api/patients/<id>/disease_terms`            | List disease terms assigned to a patient                     |
-| POST   | `/api/patients/assign_disease_terms`          | Assign disease terms to patients                             |
-| DELETE | `/api/patients/<id>/disease_terms/<tid>`      | Remove a disease term from a patient                         |
+| Method | Endpoint                                            | Description                                                |
+| ------ | --------------------------------------------------- | ---------------------------------------------------------- |
+| GET    | `/api/disease_terms?search=&page=&per_page=`        | Search/paginate free-text disease terms                    |
+| GET    | `/api/disease_terms/options?search=&limit=&offset=` | Lightweight dropdown options for disease terms             |
+| POST   | `/api/disease_terms`                                | Create (or return existing) free-text disease term by name |
+| GET    | `/api/patients/<id>/disease_terms`                  | List disease terms assigned to a patient                   |
+| POST   | `/api/patients/assign_disease_terms`                | Assign disease terms to patients                           |
+| DELETE | `/api/patients/<id>/disease_terms/<tid>`            | Remove a disease term from a patient                       |
 
 ### Singleton Variants
 
-| Method | Endpoint                              | Description                           |
-| ------ | ------------------------------------- | ------------------------------------- |
-| GET    | `/api/patients/<id>/singletons`       | List singleton findings for a patient |
-| POST   | `/api/patients/<id>/singletons`       | Create a singleton finding            |
-| GET    | `/api/singletons/<id>`                | Get a single singleton finding        |
-| PUT    | `/api/singletons/<id>`                | Update a singleton finding            |
-| DELETE | `/api/singletons/<id>`                | Delete a singleton finding            |
+| Method | Endpoint                              | Description                                                              |
+| ------ | ------------------------------------- | ------------------------------------------------------------------------ |
+| GET    | `/api/patients/<id>/singletons`       | List singleton findings for a patient                                    |
+| POST   | `/api/patients/<id>/singletons`       | Create a singleton finding                                               |
+| GET    | `/api/singletons/<id>`                | Get a single singleton finding                                           |
+| PUT    | `/api/singletons/<id>`                | Update a singleton finding                                               |
+| DELETE | `/api/singletons/<id>`                | Delete a singleton finding                                               |
 | POST   | `/api/patients/<id>/upload/singleton` | Import singleton variants from XLSX and retain the original file on disk |
 
 ### Trio Variants
 
-| Method | Endpoint                         | Description                      |
-| ------ | -------------------------------- | -------------------------------- |
-| GET    | `/api/patients/<id>/trios`       | List trio findings for a patient |
-| POST   | `/api/patients/<id>/trios`       | Create a trio finding            |
-| PUT    | `/api/trios/<id>`                | Update a trio finding            |
-| DELETE | `/api/trios/<id>`                | Delete a trio finding            |
+| Method | Endpoint                         | Description                                                         |
+| ------ | -------------------------------- | ------------------------------------------------------------------- |
+| GET    | `/api/patients/<id>/trios`       | List trio findings for a patient                                    |
+| POST   | `/api/patients/<id>/trios`       | Create a trio finding                                               |
+| PUT    | `/api/trios/<id>`                | Update a trio finding                                               |
+| DELETE | `/api/trios/<id>`                | Delete a trio finding                                               |
 | POST   | `/api/patients/<id>/upload/trio` | Import trio variants from XLSX and retain the original file on disk |
 
 ### VCF Files
