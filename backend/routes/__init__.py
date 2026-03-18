@@ -7,6 +7,7 @@ from backend.routes.singletons import singletons_bp
 from backend.routes.trios import trios_bp
 from backend.routes.vcf import vcf_bp
 from backend.routes.reports import reports_bp
+from backend.routes.insights import insights_bp
 
 ALL_BLUEPRINTS = [
     hpo_bp,
@@ -16,6 +17,7 @@ ALL_BLUEPRINTS = [
     trios_bp,
     vcf_bp,
     reports_bp,
+    insights_bp,
 ]
 
 

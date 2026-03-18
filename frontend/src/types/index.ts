@@ -11,6 +11,9 @@ export interface HPOTerm {
 export interface DiseaseTerm {
   id: number;
   term_name: string;
+  normalized_name?: string;
+  notes?: string | null;
+  created_at?: string | null;
 }
 
 export interface SingletonInfo {
@@ -79,7 +82,7 @@ export interface PatientInfo {
   hkid: string | null;
   dob: string | null;
   sex: string | null;
-  age: number | null;
+  age: string | number | null;
   age_unit: string | null;
   ethnicity: string | null;
   specimen_collected: string | null;

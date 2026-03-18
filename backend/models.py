@@ -76,7 +76,7 @@ class Patient(db.Model):
     hkid = db.Column(db.String(50), nullable=True)
     dob = db.Column(db.Date, nullable=True)
     sex = db.Column(db.String(20), nullable=True)
-    age = db.Column(db.Integer, nullable=True)
+    age = db.Column(db.String(50), nullable=True)
     age_unit = db.Column(db.String(20), nullable=True)
     ethnicity = db.Column(db.String(100), nullable=True)
     specimen_collected = db.Column(db.Date, nullable=True)

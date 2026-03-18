@@ -30,6 +30,15 @@ class Config:
     VCF_DIR = os.path.join(DATA_DIR, "vcf")
     VARIANT_UPLOAD_DIR = os.path.join(DATA_DIR, "variant_uploads")
 
+    # Local AI/model storage — keep runtime bits and weights in one ignored root.
+    # Suggested layout:
+    #   LOCAL_AI_DIR/
+    #     bin/      -> llama.cpp binaries or wrappers
+    #     models/   -> gguf / other model weights
+    LOCAL_AI_DIR = os.environ.get("LOCAL_AI_DIR", os.path.join(DATA_DIR, "local_ai"))
+    LOCAL_AI_BIN_DIR = os.path.join(LOCAL_AI_DIR, "bin")
+    LOCAL_AI_MODELS_DIR = os.path.join(LOCAL_AI_DIR, "models")
+
     # Max upload size for VCF files (default 5000 MB)
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "5000")) * 1024 * 1024
 

@@ -1,5 +1,7 @@
 import type {
   HPOTermPage,
+  HPOTerm,
+  DiseaseTerm,
   PatientInfo,
   SingletonInfo,
   TrioInfo,
@@ -69,6 +71,10 @@ export function fetchHPOOptions(
   return json(`${BASE}/hpo_terms/options?${params}`);
 }
 
+export function fetchHPOTermById(termId: number): Promise<HPOTerm> {
+  return json(`${BASE}/hpo_terms/${termId}`);
+}
+
 export function fetchCombinedTermOptions(
   search = "",
   limit = 20,
@@ -80,6 +86,52 @@ export function fetchCombinedTermOptions(
     offset: String(offset),
   });
   return json(`${BASE}/terms/options?${params}`);
+}
+
+export function fetchDiseaseTerms(
+  search = "",
+  page = 1,
+  perPage = 50,
+): Promise<{
+  items: DiseaseTerm[];
+  total: number;
+  page: number;
+  pages: number;
+}> {
+  const params = new URLSearchParams({
+    search,
+    page: String(page),
+    per_page: String(perPage),
+  });
+  return json(`${BASE}/disease_terms?${params}`);
+}
+
+export function fetchDiseaseTermById(termId: number): Promise<DiseaseTerm> {
+  return json(`${BASE}/disease_terms/${termId}`);
+}
+
+export async function updateDiseaseTerm(
+  termId: number,
+  payload: { term_name?: string; notes?: string },
+): Promise<DiseaseTerm> {
+  const res = await fetch(`${BASE}/disease_terms/${termId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: string }).error || `${res.status} ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
+export function deleteDiseaseTerm(
+  termId: number,
+): Promise<{ message: string }> {
+  return json(`${BASE}/disease_terms/${termId}`, { method: "DELETE" });
 }
 
 export function upsertFreeTextTerm(termName: string): Promise<{
@@ -136,6 +188,31 @@ export interface PatientListFilters {
   term_ids?: string;
 }
 
+export interface CreatePatientPayload {
+  lab_number: string;
+  im_lab_number?: string;
+  name?: string;
+  hkid?: string;
+  report_date?: string;
+  dob?: string;
+  sex?: string;
+  age?: string;
+  age_unit?: string;
+  ethnicity?: string;
+  specimen_collected?: string;
+  specimen_arrived?: string;
+  case_history?: string;
+  clinical_history?: string;
+  type_of_test?: string;
+  type_of_findings?: string;
+  findings_summary?: string;
+  ngs_batch?: string;
+  ngs_tat?: string;
+  ngs_tat_final?: string;
+  request_dr?: string;
+  remark?: string;
+}
+
 export function fetchPatientList(
   filters: PatientListFilters = {},
   limit = 20,
@@ -163,6 +240,79 @@ export interface FilterOptions {
   }[];
 }
 
+export interface InsightCountSummary {
+  patients: number;
+  singleton_variants: number;
+  trio_variants: number;
+  total_variants: number;
+  vcf_files: number;
+}
+
+export interface CountByChromosome {
+  chromosome: string;
+  count: number;
+}
+
+export interface CountByVariant {
+  variant: string;
+  count: number;
+}
+
+export interface CountByGene {
+  gene: string;
+  count: number;
+}
+
+export interface CountByKeyword {
+  keyword: string;
+  count: number;
+}
+
+export interface InsightSummaryResponse {
+  counts: InsightCountSummary;
+  chromosome_distribution: CountByChromosome[];
+  top_variants: CountByVariant[];
+  top_genes: CountByGene[];
+  top_keywords: CountByKeyword[];
+}
+
+export interface ExplainResponse {
+  kind: string;
+  query: string;
+  explanation: string;
+  source: string;
+  medical_disclaimer?: string;
+  matched?: {
+    hpo_id: string;
+    term_name: string;
+  };
+  details?: {
+    synonyms?: string;
+  };
+}
+
+export function fetchInsightSummary(): Promise<InsightSummaryResponse> {
+  return json(`${BASE}/insights/summary`);
+}
+
+export async function explainEntity(
+  kind: "hpo" | "variant" | "text",
+  query: string,
+): Promise<ExplainResponse> {
+  const res = await fetch(`${BASE}/insights/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, query }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: string }).error || `${res.status} ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
 export function fetchFilterOptions(): Promise<FilterOptions> {
   return json(`${BASE}/patients/filter_options`);
 }
@@ -171,12 +321,78 @@ export function fetchPatient(id: number): Promise<PatientInfo> {
   return json(`${BASE}/patients/${id}`);
 }
 
+export async function createPatient(
+  payload: CreatePatientPayload,
+): Promise<PatientInfo> {
+  const res = await fetch(`${BASE}/patients`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: string }).error || `${res.status} ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
+export function deletePatient(patientId: number): Promise<{ message: string }> {
+  return json(`${BASE}/patients/${patientId}`, { method: "DELETE" });
+}
+
 export function fetchSelectedPatients(ids: number[]): Promise<PatientInfo[]> {
   return json(`${BASE}/patients/selected`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ patient_ids: ids }),
   });
+}
+
+export type ExtractionMode = "selected_files" | "all_files";
+export type ExtractionFileType = "singletons" | "trios" | "vcf_files";
+
+export function extractSelectedPatients(
+  ids: number[],
+  mode: ExtractionMode,
+  fileTypes: ExtractionFileType[] = [],
+): Promise<PatientInfo[]> {
+  return json(`${BASE}/patients/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patient_ids: ids,
+      mode,
+      file_types: fileTypes,
+    }),
+  });
+}
+
+export async function downloadCommonVariantsVcf(ids: number[]): Promise<void> {
+  const res = await fetch(`${BASE}/patients/extract/common_variants_vcf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patient_ids: ids }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: string }).error || `${res.status} ${res.statusText}`,
+    );
+  }
+
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+  const downloadName = filenameMatch ? filenameMatch[1] : "common_variants.vcf";
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = downloadName;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Assign / Remove HPO ──────────────────────────────────────────────────
@@ -350,7 +566,10 @@ export async function fetchReportPreview(
 export async function downloadReport(params: {
   lab_number: string;
   test_type: "singleton" | "trio";
-  conclusion: string;
+  interpretation?: string;
+  comments?: string;
+  variant_classification?: string;
+  conclusion?: string;
   test_process: string;
   disclaimer: string;
   references: string;
@@ -372,6 +591,36 @@ export async function downloadReport(params: {
   const downloadName = filenameMatch
     ? filenameMatch[1]
     : `patient_info_${params.lab_number}.docx`;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = downloadName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadSingleGeneReport(
+  labNumber: string,
+): Promise<void> {
+  const res = await fetch(`${BASE}/report/generate-single-gene`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lab_number: labNumber }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: string }).error || `${res.status} ${res.statusText}`,
+    );
+  }
+
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+  const downloadName = filenameMatch
+    ? filenameMatch[1]
+    : `single_gene_report_${labNumber}.docx`;
 
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);

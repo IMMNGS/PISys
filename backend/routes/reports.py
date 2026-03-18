@@ -7,6 +7,7 @@ Ported from the legacy ``patient_info`` Flask app.  Functions such as
 
 import io
 import os
+import re
 import tempfile
 from datetime import datetime
 
@@ -159,6 +160,46 @@ def _get_summary_result(patient):
         )
 
     return "No confirmed variants found."
+
+
+def _resolve_single_gene(patient):
+    """Resolve one representative gene symbol for single-gene report.
+
+    Priority:
+    1) Confirmed (C) singleton/trio variants
+    2) Any singleton/trio variant
+    3) Empty string when unavailable
+    """
+    def _first_gene(raw_value):
+        raw = (raw_value or "").strip()
+        if not raw:
+            return ""
+        parts = re.split(r"[,;/]", raw)
+        for part in parts:
+            token = part.strip()
+            if token:
+                return token
+        return raw
+
+    confirmed_variants = Singleton.query.filter_by(
+        patient_id=patient.id, reportable_variant="C"
+    ).all() + Trio.query.filter_by(
+        patient_id=patient.id, reportable_variant="C"
+    ).all()
+    for variant in confirmed_variants:
+        gene = _first_gene(getattr(variant, "gene_names", ""))
+        if gene:
+            return gene
+
+    all_variants = Singleton.query.filter_by(patient_id=patient.id).all() + Trio.query.filter_by(
+        patient_id=patient.id
+    ).all()
+    for variant in all_variants:
+        gene = _first_gene(getattr(variant, "gene_names", ""))
+        if gene:
+            return gene
+
+    return ""
 
 
 def get_summary_result(patient):
@@ -319,7 +360,16 @@ def _build_qc_table(doc):
 
         doc.add_paragraph()
 
-def create_word_document(patient, test_type="singleton"):
+def create_word_document(
+    patient,
+    test_type="singleton",
+    interpretation="",
+    comments="",
+    variant_classification="",
+    test_process="",
+    disclaimer="",
+    references="",
+):
         """Generate a full Word (.docx) report for a patient.
 
         Args:
@@ -376,7 +426,7 @@ def create_word_document(patient, test_type="singleton"):
             ("SPECIMEN", "EDTA blood"),
             ("CLINICAL HISTORY", patient.clinical_history or ""),
             ("TYPE OF TESTING REQUESTED", patient.type_of_test or ""),
-            ("TEST DESCRIPTION", _get_test_description(test_type)),
+            ("TEST DESCRIPTION", test_process or _get_test_description(test_type)),
             ("SUMMARY OF RESULT(S)", _get_summary_result(patient)),
         ]
         for label, value in summary_sections:
@@ -428,15 +478,20 @@ def create_word_document(patient, test_type="singleton"):
 
         # Editable sections
         doc.add_page_break()
-        for section_title in [
-            "INTERPRETATION / RECOMMENDED ACTION:",
-            "COMMENTS:",
-            "VARIANT CLASSIFICATION:",
-        ]:
+        editable_sections = [
+            ("INTERPRETATION / RECOMMENDED ACTION:", interpretation),
+            ("COMMENTS:", comments),
+            ("VARIANT CLASSIFICATION:", variant_classification),
+        ]
+        for section_title, section_text in editable_sections:
             p = doc.add_paragraph()
             p.add_run(section_title).bold = True
-            for _ in range(6):
-                doc.add_paragraph()
+            if section_text and str(section_text).strip():
+                p = doc.add_paragraph()
+                p.add_run(str(section_text).strip())
+            else:
+                for _ in range(6):
+                    doc.add_paragraph()
 
         # Incidental findings (I)
         if "I" in finding_type and "A" not in finding_type:
@@ -529,8 +584,18 @@ def create_word_document(patient, test_type="singleton"):
         # Disclaimers
         p = doc.add_paragraph()
         p.add_run("DISCLAIMERS:").bold = True
-        for i, disclaimer in enumerate(DISCLAIMERS, 1):
-            doc.add_paragraph(f"({i}) {disclaimer}")
+        disclaimer_lines = []
+        if disclaimer and str(disclaimer).strip():
+            disclaimer_lines = [ln.strip() for ln in str(disclaimer).splitlines() if ln.strip()]
+        if not disclaimer_lines:
+            disclaimer_lines = list(DISCLAIMERS)
+        for i, disclaimer_line in enumerate(disclaimer_lines, 1):
+            doc.add_paragraph(f"({i}) {disclaimer_line}")
+
+        if references and str(references).strip():
+            p = doc.add_paragraph()
+            p.add_run("REFERENCES:").bold = True
+            doc.add_paragraph(str(references).strip())
 
         # Signatures
         doc.add_paragraph()
@@ -550,6 +615,56 @@ def create_word_document(patient, test_type="singleton"):
         doc.save(buf)
         buf.seek(0)
         return buf
+
+
+def create_single_gene_word_document(patient):
+    """Generate a minimal single-gene style Word (.docx) report.
+
+    Args:
+        patient: Patient model instance.
+
+    Returns:
+        A BytesIO buffer containing the .docx file.
+    """
+    from docx import Document
+    from docx.shared import Pt
+
+    doc = Document()
+
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(12)
+
+    age_display = str(patient.age or "")
+    if patient.age_unit:
+        age_display = f"{age_display} {patient.age_unit}".strip()
+
+    single_gene = _resolve_single_gene(patient)
+
+    title_pairs = [
+        ("REPORT DATE:", _format_date(patient.report_date)),
+        ("LAB#:", patient.lab_number or ""),
+        ("IM LAB#:", patient.im_lab_number or ""),
+        ("NAME:", patient.name or ""),
+        ("HKID:", patient.hkid or ""),
+        ("SEX / AGE:", f"{patient.sex or ''} / {age_display}".strip(" /")),
+        ("DOB:", _format_date(patient.dob)),
+        ("SPECIMEN COLLECTED:", _format_date(patient.specimen_collected)),
+        ("SPECIMEN ARRIVED:", _format_date(patient.specimen_arrived)),
+        ("ETHNICITY:", patient.ethnicity or ""),
+        ("SINGLE GENE:", single_gene or "N/A"),
+    ]
+
+    for label, value in title_pairs:
+        p = doc.add_paragraph()
+        p.alignment = 1
+        run = p.add_run(f"{label} {value}".rstrip())
+        run.bold = label == "REPORT DATE:"
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
 
 
 # ── API routes ───────────────────────────────────────────────────────────
@@ -612,6 +727,12 @@ def generate_report():
     data = request.get_json()
     lab_number = (data.get("lab_number") or "").strip()
     test_type = (data.get("test_type") or "singleton").lower()
+    interpretation = (data.get("interpretation") or data.get("conclusion") or "").strip()
+    comments = (data.get("comments") or "").strip()
+    variant_classification = (data.get("variant_classification") or "").strip()
+    test_process = (data.get("test_process") or "").strip()
+    disclaimer = (data.get("disclaimer") or "").strip()
+    references = (data.get("references") or "").strip()
 
     if not lab_number:
         return jsonify({"error": "lab_number is required"}), 400
@@ -621,7 +742,16 @@ def generate_report():
         return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
 
     try:
-        buf = create_word_document(patient, test_type=test_type)
+        buf = create_word_document(
+            patient,
+            test_type=test_type,
+            interpretation=interpretation,
+            comments=comments,
+            variant_classification=variant_classification,
+            test_process=test_process,
+            disclaimer=disclaimer,
+            references=references,
+        )
     except ImportError:
         return jsonify({
             "error": "python-docx is not installed. Run: pip install python-docx"
@@ -632,6 +762,43 @@ def generate_report():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     im_part = patient.im_lab_number or "NA"
     filename = f"patient_info_{patient.lab_number}_{timestamp}_{im_part}.docx"
+
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@reports_bp.route("/report/generate-single-gene", methods=["POST"])
+@reports_bp.route("/generate_single_gene_report", methods=["POST"])
+def generate_single_gene_report():
+    """Generate and download a minimal single-gene Word (.docx) report.
+
+    Accepts JSON body or form-encoded body with ``lab_number``.
+    """
+    payload = request.get_json(silent=True) or request.form
+    lab_number = (payload.get("lab_number") or "").strip()
+
+    if not lab_number:
+        return jsonify({"error": "lab_number is required"}), 400
+
+    patient = Patient.query.filter_by(lab_number=lab_number).first()
+    if not patient:
+        return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
+
+    try:
+        buf = create_single_gene_word_document(patient)
+    except ImportError:
+        return jsonify({
+            "error": "python-docx is not installed. Run: pip install python-docx"
+        }), 500
+    except Exception as e:
+        return jsonify({"error": f"Single-gene report generation failed: {str(e)}"}), 500
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"single_gene_report_{patient.lab_number}_{timestamp}.docx"
 
     return send_file(
         buf,

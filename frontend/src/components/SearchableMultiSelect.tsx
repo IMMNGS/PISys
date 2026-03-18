@@ -28,9 +28,7 @@ interface SearchableMultiSelectProps {
   /** How many more items to fetch per "Load more" click (default 100) */
   loadMoreSize?: number;
   /** Optional action to create/select a new entry from current search text */
-  onCreateFromSearch?: (
-    text: string,
-  ) => Promise<MultiSelectItem | null>;
+  onCreateFromSearch?: (text: string) => Promise<MultiSelectItem | null>;
   createLabelPrefix?: string;
 }
 
@@ -58,7 +56,11 @@ export default function SearchableMultiSelect({
   const triggerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number }>({
+  const [menuPos, setMenuPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  }>({
     top: 0,
     left: 0,
     width: 260,
@@ -264,7 +266,7 @@ export default function SearchableMultiSelect({
                 <span>
                   {creating
                     ? "Creating…"
-                    : `${createLabelPrefix}: \"${search.trim()}\"`}
+                    : `${createLabelPrefix}: "${search.trim()}"`}
                 </span>
               </li>
             )}

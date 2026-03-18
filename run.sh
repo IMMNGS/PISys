@@ -91,6 +91,8 @@ if [ "$first_time_setup" = true ]; then
   # Create data directories
   info "Creating data directories"
   mkdir -p "$PROJECT_DIR/data/vcf"
+  mkdir -p "$PROJECT_DIR/data/local_ai/bin"
+  mkdir -p "$PROJECT_DIR/data/local_ai/models"
   if [ ! -f "$PROJECT_DIR/data/disease_terms.csv" ]; then
     cat > "$PROJECT_DIR/data/disease_terms.csv" <<'CSV'
 term_name,notes
@@ -100,7 +102,7 @@ term_name,notes
 CSV
     ok "Created data/disease_terms.csv template"
   fi
-  ok "data/ and data/vcf/ ready"
+  ok "data/, data/vcf/, and data/local_ai/ ready"
 
   # MySQL DB creation if CLI available
   if command -v mysql &>/dev/null; then
@@ -211,7 +213,15 @@ if [ "$MODE" = "production" ]; then
 
   # Build frontend for production
   info "Building frontend for production"
-  (cd frontend && npm ci && npm run build && npm prune --production || true)
+  # Keep devDependencies by default so local lint/test tooling remains available
+  # after a production build. Set PRUNE_FRONTEND_DEV_DEPS=1 to restore pruning.
+  PRUNE_FRONTEND_DEV_DEPS="${PRUNE_FRONTEND_DEV_DEPS:-0}"
+  if [[ "$PRUNE_FRONTEND_DEV_DEPS" == "1" ]]; then
+    (cd frontend && npm ci && npm run build && npm prune --omit=dev || true)
+    warn "Frontend devDependencies pruned (PRUNE_FRONTEND_DEV_DEPS=1). Lint/test tools may be unavailable until npm install."
+  else
+    (cd frontend && npm ci && npm run build)
+  fi
   ok "Frontend built → frontend/dist/"
 
   # Install/ensure python deps are present (quiet attempt)

@@ -1,14 +1,30 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  fetchHPOTerms,
   fetchCombinedTermOptions,
+  fetchHPOTermById,
+  fetchDiseaseTermById,
+  updateDiseaseTerm,
+  deleteDiseaseTerm,
   upsertFreeTextTerm,
   fetchPatientOptions,
   assignTerms,
-  refreshHPOTerms,
 } from "../api/client";
+import type { DiseaseTerm } from "../types";
 import type { HPOTerm } from "../types";
 import SearchableMultiSelect from "../components/SearchableMultiSelect";
+
+type BrowseTerm = {
+  id: number;
+  term_type: "hpo" | "disease";
+  term_id: number;
+  hpo_id?: string;
+  term_name: string;
+  label: string;
+};
+
+type DetailTerm =
+  | { kind: "hpo"; value: HPOTerm }
+  | { kind: "disease"; value: DiseaseTerm };
 
 export default function ManageHpo() {
   // ── Selection state ────────────────────────────────────────────────────
@@ -24,17 +40,17 @@ export default function ManageHpo() {
     type: string;
     text: string;
   } | null>(null);
-  const [refreshMsg, setRefreshMsg] = useState<{
-    type: string;
-    text: string;
-  } | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
 
-  // Browse table state
+  // Browse table state (HPO + disease terms)
   const [browseSearch, setBrowseSearch] = useState("");
-  const [browseResults, setBrowseResults] = useState<HPOTerm[]>([]);
+  const [browseResults, setBrowseResults] = useState<BrowseTerm[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
   const [browsePages, setBrowsePages] = useState(0);
+  const [detailTerm, setDetailTerm] = useState<DetailTerm | null>(null);
+  const [editingTermId, setEditingTermId] = useState<number | null>(null);
+  const [editTermName, setEditTermName] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editMsg, setEditMsg] = useState<{ type: string; text: string } | null>(null);
 
   // ── Fetch callbacks for SearchableMultiSelect ─────────────────────────
   const fetchTermItems = useCallback(
@@ -132,37 +148,97 @@ export default function ManageHpo() {
     }
   };
 
-  // ── Refresh action ────────────────────────────────────────────────────
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    setRefreshMsg({
-      type: "info",
-      text: "Pulling latest HPO terms from pyhpo — this may take a minute…",
-    });
-    try {
-      const data = await refreshHPOTerms();
-      if (data.error) {
-        setRefreshMsg({ type: "danger", text: data.error });
-      } else {
-        setRefreshMsg({ type: "success", text: data.message });
-      }
-    } catch {
-      setRefreshMsg({ type: "danger", text: "Failed to refresh HPO terms." });
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  // ── Browse HPO table ──────────────────────────────────────────────────
+  // ── Browse combined-terms table ───────────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
-      fetchHPOTerms(browseSearch, browsePage, 50).then((data) => {
-        setBrowseResults(data.items);
-        setBrowsePages(data.pages);
+      const limit = 50;
+      const offset = (browsePage - 1) * limit;
+      fetchCombinedTermOptions(browseSearch, limit, offset).then((data) => {
+        setBrowseResults(data.items as BrowseTerm[]);
+        setBrowsePages(Math.max(1, Math.ceil(data.total / limit)));
       });
     }, 300);
     return () => clearTimeout(timer);
   }, [browseSearch, browsePage]);
+
+  const handleViewDetails = async (term: BrowseTerm) => {
+    if (term.term_type === "hpo") {
+      try {
+        const row = await fetchHPOTermById(term.term_id);
+        setDetailTerm({ kind: "hpo", value: row });
+      } catch {
+        setDetailTerm(null);
+      }
+      return;
+    }
+    try {
+      const row = await fetchDiseaseTermById(term.term_id);
+      setDetailTerm({ kind: "disease", value: row });
+    } catch {
+      setDetailTerm(null);
+    }
+  };
+
+  const handleStartEdit = (term: DiseaseTerm) => {
+    setEditMsg(null);
+    setEditingTermId(term.id);
+    setEditTermName(term.term_name ?? "");
+    setEditNotes(term.notes ?? "");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTermId) return;
+    try {
+      await updateDiseaseTerm(editingTermId, {
+        term_name: editTermName,
+        notes: editNotes,
+      });
+      setEditMsg({ type: "success", text: "Disease term updated." });
+      setEditingTermId(null);
+      const limit = 50;
+      const offset = (browsePage - 1) * limit;
+      const data = await fetchCombinedTermOptions(browseSearch, limit, offset);
+      setBrowseResults(data.items as BrowseTerm[]);
+      setBrowsePages(Math.max(1, Math.ceil(data.total / limit)));
+      if (detailTerm?.kind === "disease" && detailTerm.value.id === editingTermId) {
+        const refreshed = await fetchDiseaseTermById(editingTermId);
+        setDetailTerm({ kind: "disease", value: refreshed });
+      }
+    } catch (e: unknown) {
+      setEditMsg({
+        type: "danger",
+        text: e instanceof Error ? e.message : "Failed to update disease term.",
+      });
+    }
+  };
+
+  const handleDeleteDiseaseTerm = async (term: BrowseTerm) => {
+    if (term.term_type !== "disease") return;
+    if (!confirm(`Delete disease term: ${term.term_name}?`)) return;
+    try {
+      await deleteDiseaseTerm(term.term_id);
+      setEditMsg({ type: "success", text: "Disease term deleted." });
+      if (
+        detailTerm?.kind === "disease" &&
+        detailTerm.value.id === term.term_id
+      ) {
+        setDetailTerm(null);
+      }
+      if (editingTermId === term.term_id) {
+        setEditingTermId(null);
+      }
+      const limit = 50;
+      const offset = (browsePage - 1) * limit;
+      const data = await fetchCombinedTermOptions(browseSearch, limit, offset);
+      setBrowseResults(data.items as BrowseTerm[]);
+      setBrowsePages(Math.max(1, Math.ceil(data.total / limit)));
+    } catch (e: unknown) {
+      setEditMsg({
+        type: "danger",
+        text: e instanceof Error ? e.message : "Failed to delete disease term.",
+      });
+    }
+  };
 
   const canAssign = selectedTermIds.size > 0 && selectedPatientIds.size > 0;
 
@@ -171,24 +247,11 @@ export default function ManageHpo() {
       {/* Header */}
       <div className="flex-between mb-1">
         <h2>Manage Disease Terms</h2>
-        <button
-          className="btn btn-outline-warning"
-          disabled={refreshing}
-          onClick={handleRefresh}
-        >
-          {refreshing ? "Refreshing…" : "⟳ Refresh HPO Terms"}
-        </button>
       </div>
       <p className="text-muted mb-2">
         Use one search to find disease terms,
         then assign selected terms to selected patients.
       </p>
-
-      {refreshMsg && (
-        <div className={`alert alert-${refreshMsg.type}`}>
-          {refreshMsg.text}
-        </div>
-      )}
 
       {/* Side-by-side selectors */}
       <div className="row">
@@ -282,12 +345,12 @@ export default function ManageHpo() {
 
       <hr />
 
-      {/* Browse HPO table */}
-      <h3>Browse HPO Reference Terms</h3>
+      {/* Browse combined terms table */}
+      <h3>Browse Disease Term</h3>
       <input
         type="text"
         className="form-control mb-2"
-        placeholder="Search by HPO ID, term name, or synonyms…"
+        placeholder="Search by disease term, HPO ID, or HPO term name…"
         value={browseSearch}
         onChange={(e) => {
           setBrowseSearch(e.target.value);
@@ -295,14 +358,18 @@ export default function ManageHpo() {
         }}
       />
 
+      {editMsg && (
+        <div className={`alert alert-${editMsg.type} mb-2`}>{editMsg.text}</div>
+      )}
+
       <div className="table-wrap table-scroll">
         <table>
           <thead>
             <tr>
-              <th>HPO ID</th>
+              <th>Type</th>
+              <th>Identifier</th>
               <th>Term Name</th>
-              <th>Definition</th>
-              <th>Synonyms</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -314,28 +381,45 @@ export default function ManageHpo() {
               </tr>
             ) : (
               browseResults.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <code>{t.hpo_id}</code>
-                  </td>
+                <tr key={`${t.term_type}-${t.term_id}`}>
+                  <td>{t.term_type === "hpo" ? "HPO" : "Disease"}</td>
+                  <td>{t.term_type === "hpo" ? (t.hpo_id ?? "—") : `D-${t.term_id}`}</td>
                   <td>{t.term_name}</td>
                   <td>
-                    <small>
-                      {t.definition
-                        ? t.definition.length > 120
-                          ? t.definition.slice(0, 120) + "…"
-                          : t.definition
-                        : "—"}
-                    </small>
-                  </td>
-                  <td>
-                    <small>
-                      {t.synonyms
-                        ? t.synonyms.length > 80
-                          ? t.synonyms.slice(0, 80) + "…"
-                          : t.synonyms
-                        : "—"}
-                    </small>
+                    <div className="flex-gap">
+                      <button
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => handleViewDetails(t)}
+                      >
+                        View details
+                      </button>
+                      {t.term_type === "disease" && (
+                        <>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            onClick={() =>
+                              handleStartEdit({
+                                id: t.term_id,
+                                term_name: t.term_name,
+                                notes:
+                                  detailTerm?.kind === "disease" &&
+                                  detailTerm.value.id === t.term_id
+                                    ? detailTerm.value.notes ?? null
+                                    : null,
+                              })
+                            }
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => handleDeleteDiseaseTerm(t)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -344,12 +428,77 @@ export default function ManageHpo() {
         </table>
       </div>
 
+      {detailTerm && (
+        <div className="card mt-2">
+          <div className="card-header">Term Details</div>
+          <div className="card-body">
+            {detailTerm.kind === "hpo" ? (
+              <>
+                <p><strong>HPO ID:</strong> {detailTerm.value.hpo_id}</p>
+                <p><strong>Term Name:</strong> {detailTerm.value.term_name}</p>
+                <p><strong>Definition:</strong> {detailTerm.value.definition || "—"}</p>
+                <p><strong>Synonyms:</strong> {detailTerm.value.synonyms || "—"}</p>
+              </>
+            ) : (
+              <>
+                <p><strong>Name:</strong> {detailTerm.value.term_name}</p>
+                <p><strong>Identifier:</strong> {detailTerm.value.normalized_name ?? "—"}</p>
+                <p><strong>Notes:</strong> {detailTerm.value.notes || "—"}</p>
+                <p>
+                  <strong>Created:</strong>{" "}
+                  {detailTerm.value.created_at
+                    ? new Date(detailTerm.value.created_at).toLocaleString()
+                    : "—"}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {editingTermId !== null && (
+        <div className="card mt-2">
+          <div className="card-header">Edit Free-Text Disease Term</div>
+          <div className="card-body">
+            <div className="row mb-1">
+              <div className="col-2">
+                <label className="mb-1"><strong>Term Name</strong></label>
+                <input
+                  className="form-control"
+                  value={editTermName}
+                  onChange={(e) => setEditTermName(e.target.value)}
+                />
+              </div>
+              <div className="col-2">
+                <label className="mb-1"><strong>Notes</strong></label>
+                <input
+                  className="form-control"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex-gap">
+              <button className="btn btn-primary" onClick={handleSaveEdit}>
+                Save
+              </button>
+              <button
+                className="btn btn-outline-secondary"
+                onClick={() => setEditingTermId(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {browsePages > 1 &&
         (() => {
           const maxButtons = 7;
           const half = Math.floor(maxButtons / 2);
           let start = Math.max(1, browsePage - half);
-          let end = Math.min(browsePages, start + maxButtons - 1);
+          const end = Math.min(browsePages, start + maxButtons - 1);
           if (end - start + 1 < maxButtons)
             start = Math.max(1, end - maxButtons + 1);
           const pages = Array.from(

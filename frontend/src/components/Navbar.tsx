@@ -23,6 +23,12 @@ export default function Navbar() {
           <li>
             <NavLink to="/manage-hpo">Manage Disease Terms</NavLink>
           </li>
+          <li>
+            <NavLink to="/stats">Descriptive Stats</NavLink>
+          </li>
+          <li>
+            <NavLink to="/explain">Explain (Local)</NavLink>
+          </li>
         </ul>
       </div>
     </nav>

@@ -6,7 +6,6 @@ import {
   uploadVcfFile,
   uploadSingletonXlsx,
   uploadTrioXlsx,
-  uploadPatientsXlsx,
   fetchVcfFiles,
   deleteVcfFile,
 } from "../api/client";
@@ -48,9 +47,7 @@ export default function Upload() {
   const [uploading, setUploading] = useState(false);
   const [vcfFiles, setVcfFiles] = useState<VcfFileInfo[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-  const patientFileRef = useRef<HTMLInputElement>(null);
-  const [patientUploading, setPatientUploading] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshKey] = useState(0);
   const [lastUploaded, setLastUploaded] = useState<{
     labNumber?: string;
     testType?: UploadType;
@@ -104,31 +101,6 @@ export default function Upload() {
   }, [patientId]);
 
   const selectedPatient = patients.find((p) => p.id === patientId);
-
-  const handlePatientListUpload = async () => {
-    if (!patientFileRef.current?.files?.length) return;
-    const file = patientFileRef.current.files[0];
-    setPatientUploading(true);
-    setStatus(null);
-    try {
-      const r = await uploadPatientsXlsx(file);
-      setStatus({ type: "success", msg: r.message });
-      await reloadPatients();
-      // Force the patient dropdown to refetch fresh data
-      setRefreshKey((k) => k + 1);
-      setPatientId("");
-      setPatientLabel("");
-      patientIdMap.current.clear();
-      if (patientFileRef.current) patientFileRef.current.value = "";
-    } catch (e: unknown) {
-      setStatus({
-        type: "error",
-        msg: e instanceof Error ? e.message : "Patient list upload failed",
-      });
-    } finally {
-      setPatientUploading(false);
-    }
-  };
 
   const handleUpload = async () => {
     if (!patientId || !fileRef.current?.files?.length) return;
@@ -190,41 +162,8 @@ export default function Upload() {
     <>
       <h2>Upload &amp; Import</h2>
       <p className="text-muted mb-2">
-        Import patients from a spreadsheet and upload variant files.
+        Upload variant files for existing patients.
       </p>
-
-      {/* ── Bulk patient import ────────────────────────────────────── */}
-      <div className="card mb-2">
-        <div className="card-header primary">
-          Import Patients from Excel (.xlsx)
-        </div>
-        <div className="card-body">
-          <p className="text-muted mb-1" style={{ fontSize: "0.85rem" }}>
-            Upload an <strong>.xlsx</strong> file with one patient per row.
-            Required column: <code>lab_number</code>. Optional columns:{" "}
-            <code>im_lab_number</code>, <code>name</code>, <code>sex</code>,{" "}
-            <code>age</code>, <code>age_unit</code>, <code>dob</code>,{" "}
-            <code>ethnicity</code>, <code>type_of_test</code>, etc. Duplicate
-            lab numbers are skipped.
-          </p>
-          <div className="flex-gap">
-            <input
-              ref={patientFileRef}
-              type="file"
-              className="form-control"
-              accept=".xlsx"
-              style={{ maxWidth: "400px" }}
-            />
-            <button
-              className="btn btn-primary"
-              disabled={patientUploading}
-              onClick={handlePatientListUpload}
-            >
-              {patientUploading ? "Importing…" : "Import Patients"}
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* ── Status message ─────────────────────────────────────── */}
       {status && (

@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import {
   fetchReportPreview,
   downloadReport,
+  downloadSingleGeneReport,
   fetchPatientOptions,
   type ReportPreview,
 } from "../api/client";
@@ -16,13 +17,16 @@ export default function Report() {
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingSingleGene, setGeneratingSingleGene] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoLoadFromParams, setAutoLoadFromParams] = useState(false);
 
   const location = useLocation();
 
   // Editable text fields
-  const [conclusion, setConclusion] = useState("");
+  const [interpretation, setInterpretation] = useState("");
+  const [comments, setComments] = useState("");
+  const [variantClassification, setVariantClassification] = useState("");
   const [testProcess, setTestProcess] = useState("");
   const [disclaimer, setDisclaimer] = useState("");
   const [references, setReferences] = useState("");
@@ -40,7 +44,7 @@ export default function Report() {
     [],
   );
 
-  const handlePreview = async () => {
+  const handlePreview = useCallback(async () => {
     if (!labNumber.trim()) return;
     setLoading(true);
     setError(null);
@@ -51,13 +55,15 @@ export default function Report() {
       setTestProcess(data.defaults.test_process);
       setDisclaimer(data.defaults.disclaimer);
       setReferences(data.defaults.references);
-      setConclusion("");
+      setInterpretation("");
+      setComments("");
+      setVariantClassification("");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
-  };
+  }, [labNumber, testType]);
 
   // Parse query params for automatic behaviour
   useEffect(() => {
@@ -78,7 +84,7 @@ export default function Report() {
       handlePreview();
       setAutoLoadFromParams(false);
     }
-  }, [autoLoadFromParams, labNumber, testType]);
+  }, [autoLoadFromParams, labNumber, handlePreview]);
 
   // (no automatic download) After preview loads we do nothing — user must click Generate
 
@@ -90,7 +96,9 @@ export default function Report() {
       await downloadReport({
         lab_number: labNumber.trim(),
         test_type: testType,
-        conclusion,
+        interpretation,
+        comments,
+        variant_classification: variantClassification,
         test_process: testProcess,
         disclaimer,
         references,
@@ -99,6 +107,21 @@ export default function Report() {
       setError(e instanceof Error ? e.message : "Report generation failed");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleGenerateSingleGene = async () => {
+    if (!labNumber.trim()) return;
+    setGeneratingSingleGene(true);
+    setError(null);
+    try {
+      await downloadSingleGeneReport(labNumber.trim());
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error ? e.message : "Single-gene report generation failed",
+      );
+    } finally {
+      setGeneratingSingleGene(false);
     }
   };
 
@@ -177,6 +200,16 @@ export default function Report() {
           >
             {loading ? "Loading…" : "Load Patient Data"}
           </button>
+          <button
+            className="btn btn-outline mt-1"
+            disabled={generatingSingleGene || loading || !labNumber.trim()}
+            onClick={handleGenerateSingleGene}
+            style={{ marginLeft: "0.75rem" }}
+          >
+            {generatingSingleGene
+              ? "Generating…"
+              : "Download Single-Gene Report (.docx)"}
+          </button>
         </div>
       </div>
 
@@ -207,7 +240,8 @@ export default function Report() {
             <div className="card-header">Testing Information</div>
             <div className="card-body">
               <p>
-                <strong>Clinical History:</strong> {patient.clinical_history || patient.case_history || "—"}
+                <strong>Clinical History:</strong>{" "}
+                {patient.clinical_history || patient.case_history || "—"}
               </p>
               <p>
                 <strong>Type of Test:</strong> {patient.type_of_test || "—"}
@@ -291,14 +325,42 @@ export default function Report() {
 
           {/* Editable text sections */}
           <div className="card mb-2">
-            <div className="card-header">Conclusion</div>
+            <div className="card-header">
+              Interpretation / Recommended Action
+            </div>
             <div className="card-body">
               <textarea
                 className="form-control"
                 rows={5}
-                value={conclusion}
-                onChange={(e) => setConclusion(e.target.value)}
-                placeholder="Enter the clinical conclusion for this report..."
+                value={interpretation}
+                onChange={(e) => setInterpretation(e.target.value)}
+                placeholder="Enter interpretation / recommended action..."
+              />
+            </div>
+          </div>
+
+          <div className="card mb-2">
+            <div className="card-header">Comments</div>
+            <div className="card-body">
+              <textarea
+                className="form-control"
+                rows={4}
+                value={comments}
+                onChange={(e) => setComments(e.target.value)}
+                placeholder="Enter additional comments..."
+              />
+            </div>
+          </div>
+
+          <div className="card mb-2">
+            <div className="card-header">Variant Classification</div>
+            <div className="card-body">
+              <textarea
+                className="form-control"
+                rows={4}
+                value={variantClassification}
+                onChange={(e) => setVariantClassification(e.target.value)}
+                placeholder="Enter variant classification notes..."
               />
             </div>
           </div>
@@ -340,10 +402,13 @@ export default function Report() {
           </div>
 
           {/* Generate button */}
-          <div style={{ textAlign: "right", marginBottom: "2rem" }}>
+          <div
+            className="flex-gap"
+            style={{ justifyContent: "flex-end", marginBottom: "2rem" }}
+          >
             <button
               className="btn btn-primary"
-              disabled={generating}
+              disabled={generating || generatingSingleGene}
               onClick={handleGenerate}
               style={{ fontSize: "1rem", padding: "0.6rem 2rem" }}
             >

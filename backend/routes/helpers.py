@@ -6,13 +6,15 @@ from difflib import SequenceMatcher
 
 
 def _patient_to_dict(patient, include_hpo=True, include_singletons=False,
-                     include_trios=False, include_vcf_files=False):
+                     include_trios=False, include_vcf_files=False,
+                     include_disease_terms=False):
     """Serialize a patient."""
     return patient.to_dict(
         include_hpo=include_hpo,
         include_singletons=include_singletons,
         include_trios=include_trios,
         include_vcf_files=include_vcf_files,
+        include_disease_terms=include_disease_terms,
     )
 
 
@@ -170,7 +172,7 @@ def normalize_variant_row(row, fields):
 PATIENT_FIELDS = (
     "lab_number", "im_lab_number", "name", "hkid", "dob", "sex", "age",
     "age_unit", "ethnicity", "specimen_collected", "specimen_arrived",
-    "clinical_history", "type_of_test", "type_of_findings", "findings_summary",
+    "case_history", "clinical_history", "type_of_test", "type_of_findings", "findings_summary",
     "ngs_batch", "ngs_tat", "ngs_tat_final", "request_dr", "remark",
     "report_date",
 )
@@ -227,7 +229,7 @@ def get_available_patient_fields():
         "specimen_collected": "Specimen Collected Date",
         "specimen_arrived": "Specimen Arrived Date",
         "report_date": "Report Date",
-        "clinical_history": "Clinical History",
+        "case_history": "Case History",
         "type_of_test": "Type of Test",
         "type_of_findings": "Type of Findings",
         "ngs_batch": "NGS Batch",
@@ -269,7 +271,7 @@ _PATIENT_FIELD_VARIATIONS = {
         "arrived date", "sample receive date",
     ],
     "report_date": ["report date", "report_date", "reported date", "reporting date"],
-    "clinical_history": [
+    "case_history": [
         "Case", "case history", "Clinical_Detail", "case_history",
         "clinical history", "clinical_history", "history", "diagnosis",
     ],

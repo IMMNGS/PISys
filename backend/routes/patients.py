@@ -1,10 +1,16 @@
 """Patient CRUD and bulk-import routes."""
 
-from flask import Blueprint, abort, jsonify, request
+import gzip
+import io
+import os
+from datetime import datetime, timezone
+
+from flask import Blueprint, abort, jsonify, request, current_app, send_file
 
 from backend.models import (
     db,
     Patient,
+    VcfFile,
     patient_disease_term,
     patient_hpo,
 )
@@ -18,7 +24,32 @@ from backend.routes.helpers import (
 patients_bp = Blueprint("patients", __name__)
 
 _FULL = dict(include_hpo=True, include_singletons=True,
-             include_trios=True, include_vcf_files=True)
+             include_trios=True, include_vcf_files=True,
+             include_disease_terms=True)
+
+
+def _extract_variant_keys_from_vcf(path):
+    """Parse one .vcf/.vcf.gz file and return a set of (chrom, pos, ref, alt)."""
+    opener = gzip.open if str(path).lower().endswith(".gz") else open
+    keys = set()
+    with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if not line or line.startswith("#"):
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 5:
+                continue
+            chrom, pos, _vid, ref, alts = parts[:5]
+            chrom = str(chrom).strip()
+            pos = str(pos).strip()
+            ref = str(ref).strip()
+            if not chrom or not pos or not ref:
+                continue
+            for alt in str(alts).split(","):
+                alt_value = alt.strip()
+                if alt_value:
+                    keys.add((chrom, pos, ref, alt_value))
+    return keys
 
 
 # ── CRUD ─────────────────────────────────────────────────────────────────
@@ -94,10 +125,7 @@ def get_patient_list():
 
     age_filter = request.args.get("age", "").strip()
     if age_filter:
-        try:
-            query = query.filter(Patient.age == int(age_filter))
-        except ValueError:
-            pass  # ignore non-numeric age filter
+        query = query.filter(Patient.age.ilike(f"%{age_filter}%"))
 
     # Combined terms filter (HPO + free-text disease) — require ALL selected
     # term IDs. Positive IDs = hpo_terms.id, negative IDs = disease_terms.id.
@@ -161,13 +189,31 @@ def get_filter_options():
 @patients_bp.route("/patients", methods=["POST"])
 def create_patient():
     """Create a new patient."""
-    data = request.get_json()
-    if "clinical_history" not in data and "case_history" in data:
+    data = request.get_json(silent=True) or {}
+    lab_number = str(data.get("lab_number") or "").strip()
+    if not lab_number:
+        return jsonify({"error": "lab_number is required"}), 400
+    if not validate_lab_number(lab_number):
+        return jsonify({"error": "Invalid lab number format"}), 400
+    if Patient.query.filter_by(lab_number=lab_number).first():
+        return jsonify({"error": f"Lab number {lab_number} already exists"}), 409
+
+    if "case_history" not in data and data.get("clinical_history") is not None:
+        data["case_history"] = data.get("clinical_history")
+    if "clinical_history" not in data and data.get("case_history") is not None:
         data["clinical_history"] = data.get("case_history")
-    patient = Patient(lab_number=data["lab_number"])
+
+    patient = Patient(lab_number=lab_number)
     for field in PATIENT_FIELDS:
         if field != "lab_number" and field in data:
-            setattr(patient, field, data[field])
+            value = data[field]
+            if field in DATE_FIELDS and isinstance(value, str):
+                try:
+                    from datetime import date as _date
+                    value = _date.fromisoformat(value[:10])
+                except ValueError:
+                    pass
+            setattr(patient, field, value)
     db.session.add(patient)
     db.session.commit()
     return jsonify(_patient_to_dict(patient, **_FULL)), 201
@@ -195,6 +241,7 @@ def delete_patient(patient_id):
     if not patient:
         abort(404)
     patient.hpo_terms.clear()
+    patient.disease_terms.clear()
     db.session.delete(patient)
     db.session.commit()
     return jsonify({"message": "Patient deleted"}), 200
@@ -225,14 +272,21 @@ def upload_patients_xlsx():
 
     added = 0
     skipped = []
+    invalid = []
     for row in rows:
         lab = row.get("lab_number")
         if not lab:
             continue
         lab = str(lab).strip()
+        if not validate_lab_number(lab):
+            invalid.append(lab)
+            continue
         if lab in existing_labs:
             skipped.append(lab)
             continue
+
+        if "case_history" not in row and row.get("clinical_history") is not None:
+            row["case_history"] = row.get("clinical_history")
 
         patient = Patient(lab_number=lab)
         for field in PATIENT_FIELDS:
@@ -247,11 +301,6 @@ def upload_patients_xlsx():
                     val = _date.fromisoformat(val)
                 except ValueError:
                     pass
-            if field == "age" and val is not None:
-                try:
-                    val = int(val)
-                except (ValueError, TypeError):
-                    pass
             setattr(patient, field, val)
 
         db.session.add(patient)
@@ -262,7 +311,9 @@ def upload_patients_xlsx():
     msg = f"Imported {added} patient(s)"
     if skipped:
         msg += f", skipped {len(skipped)} duplicate(s): {', '.join(skipped)}"
-    return jsonify({"message": msg, "added": added, "skipped": skipped}), 201
+    if invalid:
+        msg += f", skipped {len(invalid)} invalid lab number(s): {', '.join(invalid)}"
+    return jsonify({"message": msg, "added": added, "skipped": skipped, "invalid": invalid}), 201
 
 
 # ── Patient ↔ HPO Assignment ────────────────────────────────────────────
@@ -329,6 +380,128 @@ def get_selected_patients():
     ids = data.get("patient_ids", [])
     patients = Patient.query.filter(Patient.id.in_(ids)).all()
     return jsonify([_patient_to_dict(p, **_FULL) for p in patients])
+
+
+@patients_bp.route("/patients/extract", methods=["POST"])
+def extract_patients_with_mode():
+    """Extract selected patients with configurable related file payload.
+
+    Body:
+      {
+        "patient_ids": [1,2],
+                "mode": "selected_files" | "all_files",
+        "file_types": ["singletons", "trios", "vcf_files"]
+      }
+    """
+    data = request.get_json() or {}
+    ids = data.get("patient_ids", [])
+    mode = str(data.get("mode", "all_files")).strip().lower()
+    file_types = data.get("file_types", []) or []
+
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "patient_ids is required"}), 400
+    if mode == "which_files":
+        mode = "selected_files"
+    if mode not in {"selected_files", "all_files"}:
+        return jsonify({"error": "mode must be 'selected_files' or 'all_files'"}), 400
+    if mode == "selected_files" and not isinstance(file_types, list):
+        return jsonify({"error": "file_types must be a list"}), 400
+
+    selected_types = {str(t).strip() for t in file_types}
+    include_singletons = mode == "all_files" or "singletons" in selected_types
+    include_trios = mode == "all_files" or "trios" in selected_types
+    include_vcf_files = mode == "all_files" or "vcf_files" in selected_types
+
+    rows = Patient.query.filter(Patient.id.in_(ids)).all()
+    by_id = {p.id: p for p in rows}
+
+    payload = []
+    for pid in ids:
+        patient = by_id.get(pid)
+        if not patient:
+            continue
+        payload.append(patient.to_dict(
+            include_hpo=True,
+            include_disease_terms=True,
+            include_singletons=include_singletons,
+            include_trios=include_trios,
+            include_vcf_files=include_vcf_files,
+        ))
+
+    return jsonify(payload)
+
+
+@patients_bp.route("/patients/extract/common_variants_vcf", methods=["POST"])
+def extract_common_variants_vcf():
+    """Find common variants across selected patients and return a VCF file.
+
+    A variant key is defined as (CHROM, POS, REF, ALT).
+    For each selected patient, variants are the union across all readable
+    `.vcf` and `.vcf.gz` files linked to that patient.
+    """
+    data = request.get_json() or {}
+    ids = data.get("patient_ids", [])
+    if not isinstance(ids, list) or len(ids) < 2:
+        return jsonify({"error": "Select at least 2 patients for common variants"}), 400
+
+    patients = Patient.query.filter(Patient.id.in_(ids)).all()
+    if len(patients) < 2:
+        return jsonify({"error": "At least 2 valid patients are required"}), 400
+
+    vcf_dir = current_app.config["VCF_DIR"]
+    per_patient_variant_sets = []
+
+    for patient in patients:
+        variant_keys = set()
+        files = VcfFile.query.filter_by(patient_id=patient.id).all()
+        for record in files:
+            lower = (record.filename or "").lower()
+            if not (lower.endswith(".vcf") or lower.endswith(".vcf.gz")):
+                continue
+            disk_path = os.path.join(vcf_dir, record.relative_path)
+            if not os.path.isfile(disk_path):
+                continue
+            try:
+                variant_keys |= _extract_variant_keys_from_vcf(disk_path)
+            except OSError:
+                continue
+
+        if not variant_keys:
+            return jsonify({
+                "error": f"No readable .vcf/.vcf.gz variants found for patient {patient.lab_number}"
+            }), 400
+
+        per_patient_variant_sets.append(variant_keys)
+
+    common_keys = set.intersection(*per_patient_variant_sets) if per_patient_variant_sets else set()
+
+    def _sort_key(item):
+        chrom, pos, ref, alt = item
+        try:
+            pos_num = int(pos)
+        except ValueError:
+            pos_num = 10**12
+        return chrom, pos_num, ref, alt
+
+    now_utc = datetime.now(timezone.utc)
+    lines = [
+        "##fileformat=VCFv4.1",
+        "##source=HA-common-variants",
+        f"##generated={now_utc.isoformat()}",
+        f"##selected_patients={','.join(str(i) for i in ids)}",
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+    ]
+    for chrom, pos, ref, alt in sorted(common_keys, key=_sort_key):
+        lines.append(f"{chrom}\t{pos}\t.\t{ref}\t{alt}\t.\tPASS\t.")
+
+    content = "\n".join(lines) + "\n"
+    filename = f"common_variants_{now_utc.strftime('%Y%m%d_%H%M%S')}.vcf"
+    return send_file(
+        io.BytesIO(content.encode("utf-8")),
+        mimetype="text/vcf",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 # ── Update findings / report-date ────────────────────────────────────────

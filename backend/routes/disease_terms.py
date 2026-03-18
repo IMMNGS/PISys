@@ -97,6 +97,65 @@ def create_disease_term():
     return jsonify(row.to_dict()), 201
 
 
+@disease_terms_bp.route("/disease_terms/<int:term_id>", methods=["GET"])
+def get_disease_term(term_id):
+    """Return one disease term by ID."""
+    row = db.session.get(DiseaseTerm, term_id)
+    if not row:
+        abort(404)
+    return jsonify(row.to_dict())
+
+
+@disease_terms_bp.route("/disease_terms/<int:term_id>", methods=["PUT"])
+def update_disease_term(term_id):
+    """Update a free-text disease term."""
+    row = db.session.get(DiseaseTerm, term_id)
+    if not row:
+        abort(404)
+
+    data = request.get_json() or {}
+    incoming_name = data.get("term_name")
+    incoming_notes = data.get("notes")
+
+    if incoming_name is not None:
+        new_name = str(incoming_name).strip()
+        if not new_name:
+            return jsonify({"error": "term_name cannot be empty"}), 400
+        normalized = _normalize_term(new_name)
+        conflict = DiseaseTerm.query.filter(
+            DiseaseTerm.normalized_name == normalized,
+            DiseaseTerm.id != row.id,
+        ).first()
+        if conflict:
+            return jsonify({"error": "A disease term with the same name already exists"}), 409
+        row.term_name = new_name
+        row.normalized_name = normalized
+
+    if incoming_notes is not None:
+        notes = str(incoming_notes).strip()
+        row.notes = notes or None
+
+    db.session.commit()
+    return jsonify(row.to_dict())
+
+
+@disease_terms_bp.route("/disease_terms/<int:term_id>", methods=["DELETE"])
+def delete_disease_term(term_id):
+    """Delete a free-text disease term and unlink it from all patients."""
+    row = db.session.get(DiseaseTerm, term_id)
+    if not row:
+        abort(404)
+
+    linked_patients = row.patients.all()
+    for patient in linked_patients:
+        if row in patient.disease_terms:
+            patient.disease_terms.remove(row)
+
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({"message": "Disease term deleted"}), 200
+
+
 @disease_terms_bp.route("/terms/free_text", methods=["POST"])
 def upsert_free_text_term():
     """Create a free-text disease term (or return existing one) for quick assignment UI."""

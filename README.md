@@ -30,6 +30,7 @@ HA/
 │   ├── all_hpo_terms.csv     # ~19,500 HPO terms (loadable via Manage HPO page)
 │   └── vcf/                  # VCF files uploaded per patient
 │   └── variant_uploads/       # Original singleton/trio XLSX files (per patient, per file type)
+│   └── local_ai/             # Local LLM runtime + weights (gitignored)
 │
 ├── frontend/                 # React + TypeScript (Vite)
 │   ├── index.html
@@ -77,10 +78,14 @@ The setup script will:
 1. Check prerequisites (Python 3, Node.js, MySQL)
 2. Install Python dependencies
 3. Create the MySQL database
-4. Create data directories (`data/`, `data/vcf/`, `data/variant_uploads/`)
+4. Create data directories (`data/`, `data/vcf/`, `data/variant_uploads/`, `data/local_ai/`)
 5. Install frontend dependencies and build the React/TypeScript app
 
 After setup, load HPO terms from the **Manage HPO** page (or `POST /api/hpo_terms/refresh`), then upload patient data via the **Upload** page.
+
+### Local model storage
+
+If you add a local runtime such as llama.cpp, keep all binaries and weights under `data/local_ai/` by default. The app exposes this as `LOCAL_AI_DIR` in configuration, with subdirectories for binaries and model weights. That location is ignored by Git, so large model files stay out of the repository.
 
 Then open [http://localhost:5000](http://localhost:5000).
 

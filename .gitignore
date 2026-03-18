@@ -16,6 +16,7 @@ env/
 # Data & test
 test/
 data/*
+data/local_ai/
 frontend/src/__tests__
 
 # OS files
