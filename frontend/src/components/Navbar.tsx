@@ -4,7 +4,9 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <div className="container">
-        <NavLink to="/" className="navbar-brand">Patient Information System</NavLink>
+        <NavLink to="/" className="navbar-brand">
+          Patient Information System
+        </NavLink>
         <ul className="nav-links">
           <li>
             <NavLink to="/" end>
@@ -27,7 +29,7 @@ export default function Navbar() {
             <NavLink to="/stats">Descriptive Stats</NavLink>
           </li>
           <li>
-            <NavLink to="/explain">Explain (Local)</NavLink>
+            <NavLink to="/assistant">AI Assistant</NavLink>
           </li>
         </ul>
       </div>

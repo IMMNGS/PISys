@@ -20,6 +20,7 @@ HA/
 │       ├── disease_terms.py  # Free-text disease term endpoints (search, create, assign)
 │       ├── helpers.py        # Shared constants & utilities
 │       ├── hpo_terms.py      # HPO term endpoints (search, refresh from pyhpo)
+│       ├── local_llm.py      # Local LLM chat proxy for loopback servers
 │       ├── patients.py       # Patient CRUD, XLSX import, HPO assignment, paginated list & options
 │       ├── singletons.py     # Singleton variant CRUD + XLSX import
 │       ├── trios.py          # Trio variant CRUD + XLSX import
@@ -55,6 +56,7 @@ HA/
 │           ├── SelectPatients.tsx   # Patient table with server-side filters & pagination
 │           ├── Upload.tsx           # File upload with searchable patient selector
 │           ├── Report.tsx           # Report generation with searchable lab number selector
+│           ├── LocalLlm.tsx         # Local chat UI for loopback LLM servers
 │           └── ManageHpo.tsx
 │
 ├── requirements.txt          # Python dependencies
@@ -87,7 +89,22 @@ After setup, load HPO terms from the **Manage HPO** page (or `POST /api/hpo_term
 
 If you add a local runtime such as llama.cpp, keep all binaries and weights under `data/local_ai/` by default. The app exposes this as `LOCAL_AI_DIR` in configuration, with subdirectories for binaries and model weights. That location is ignored by Git, so large model files stay out of the repository.
 
+### Local LLM chat
+
+The app includes a local-only chat page that forwards prompts to a loopback OpenAI-compatible server. The default model name is `qwen3.5-4b-instruct`. Set `LOCAL_LLM_BASE_URL` to your local server and `LOCAL_LLM_MODEL` to the installed model name, then open the **Local LLM** page in the app.
+
+To populate the model directory, use [scripts/download_qwen_model.sh](scripts/download_qwen_model.sh) or copy your own GGUF into `data/local_ai/models/`. The app looks for `LOCAL_LLM_MODEL_FILE` first, then falls back to a file name derived from `LOCAL_LLM_MODEL`.
+
+If the Hugging Face repo requires access, set `HF_TOKEN` or `HUGGINGFACE_TOKEN` before running the download helper.
+
+The easiest place is a root-level [.env](.env) file, for example:
+
+- `HF_TOKEN=hf_...`
+- or `HUGGINGFACE_TOKEN=hf_...`
+
 Then open [http://localhost:5000](http://localhost:5000).
+
+For the full production workflow, [run.sh](run.sh) now starts Gunicorn plus the local LLM server together in `production` mode. By default it uses the GGUF in `data/local_ai/models/` and the loopback port `8080`. Set `RUN_LOCAL_LLM=0` only if you want to launch the web app without the local model process.
 
 ## Prerequisites
 
@@ -187,7 +204,7 @@ chmod +x run.sh
 bash run.sh production
 ```
 
-The server binds to `0.0.0.0:8000` by default, serving the built React SPA and API via Gunicorn.
+The server binds to `0.0.0.0:8000` by default, serving the built React SPA and API via Gunicorn. The same command also starts the local LLM server on `127.0.0.1:8080` unless `RUN_LOCAL_LLM=0` is set.
 
 ### Manual Production Start
 

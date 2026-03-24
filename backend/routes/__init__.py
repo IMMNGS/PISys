@@ -8,6 +8,7 @@ from backend.routes.trios import trios_bp
 from backend.routes.vcf import vcf_bp
 from backend.routes.reports import reports_bp
 from backend.routes.insights import insights_bp
+from backend.routes.local_llm import local_llm_bp
 
 ALL_BLUEPRINTS = [
     hpo_bp,
@@ -18,6 +19,7 @@ ALL_BLUEPRINTS = [
     vcf_bp,
     reports_bp,
     insights_bp,
+    local_llm_bp,
 ]
 
 

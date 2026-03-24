@@ -111,3 +111,25 @@ export interface HPOTermPage {
   page: number;
   pages: number;
 }
+
+export interface LocalLlmMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface LocalLlmChatResponse {
+  model: string;
+  reply: string;
+}
+
+export interface LocalLlmModelOption {
+  filename: string;
+  label: string;
+  path: string;
+  is_default: boolean;
+}
+
+export interface LocalLlmModelsResponse {
+  models: LocalLlmModelOption[];
+  selected: string;
+}

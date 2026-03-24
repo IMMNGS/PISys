@@ -23,8 +23,10 @@ This file tracks the implementation plan for local analytics and local explanati
 - [x] Add local rule-based variant explanation stub
 - [x] Create frontend page: `frontend/src/pages/ExplainTerms.tsx`
 - [x] Add route + navbar entry for explain helper
+- [x] Create local LLM chat page: `frontend/src/pages/LocalLlm.tsx`
+- [x] Add backend chat proxy: `/api/local-llm/chat`
+- [x] Add model settings controls (model name, max tokens, temperature)
 - [ ] Integrate local small-model runtime (optional): Ollama / llama.cpp / vLLM local
-- [ ] Add model settings page (model name, max tokens, temperature)
 - [ ] Add response caching (SQLite/local table) to reduce repeated inference
 - [ ] Add PHI-safe logging controls and retention policy
 - [ ] Add citation mode (show matched HPO rows / variant fields used)

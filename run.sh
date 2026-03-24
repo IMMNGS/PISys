@@ -1,10 +1,3 @@
-# Load .env if present
-if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -25,6 +18,14 @@ fail()  { echo -e "${RED}✗ $*${NC}"; exit 1; }
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
+# Load .env if present
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 MODE="${1:-production}"
 case "$MODE" in
   setup|development|production) ;;
@@ -37,6 +38,66 @@ MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
 MYSQL_HOST="${MYSQL_HOST:-localhost}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
 MYSQL_DB="${MYSQL_DB:-hpo_database}"
+RUN_LOCAL_LLM="${RUN_LOCAL_LLM:-1}"
+LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8080}"
+LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL:-http://127.0.0.1:${LOCAL_LLM_PORT}/v1/chat/completions}"
+LOCAL_LLM_MODEL_FILE="${LOCAL_LLM_MODEL_FILE:-$PROJECT_DIR/data/local_ai/models/Qwen3.5-4B-Q4_K_M.gguf}"
+LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-qwen3.5-4b-instruct}"
+
+export LOCAL_LLM_PORT LOCAL_LLM_BASE_URL LOCAL_LLM_MODEL_FILE LOCAL_LLM_MODEL
+
+GUNICORN_PID=""
+BACKEND_PID=""
+LLM_PID=""
+
+cleanup() {
+  if [[ -n "${GUNICORN_PID:-}" ]]; then
+    kill "$GUNICORN_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${BACKEND_PID:-}" ]]; then
+    kill "$BACKEND_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${LLM_PID:-}" ]]; then
+    kill "$LLM_PID" >/dev/null 2>&1 || true
+  fi
+}
+
+wait_for_http() {
+  local url="$1"
+  local label="$2"
+  local attempts="${3:-60}"
+  local delay="${4:-1}"
+
+  for ((i = 1; i <= attempts; i++)); do
+    if python3 - <<PY >/dev/null 2>&1
+from urllib.request import urlopen
+urlopen("$url", timeout=2)
+PY
+    then
+      return 0
+    fi
+    sleep "$delay"
+  done
+
+  fail "$label did not become ready at $url"
+}
+
+start_local_llm() {
+  if [[ "$RUN_LOCAL_LLM" == "0" ]]; then
+    warn "RUN_LOCAL_LLM=0 — skipping local LLM startup"
+    return 0
+  fi
+
+  if [[ ! -f "$LOCAL_LLM_MODEL_FILE" ]]; then
+    fail "Local LLM model file not found: $LOCAL_LLM_MODEL_FILE"
+  fi
+
+  info "Starting local LLM server on port ${LOCAL_LLM_PORT}"
+  python scripts/start_local_llm.py --mode llama --host 127.0.0.1 --port "$LOCAL_LLM_PORT" &
+  LLM_PID=$!
+  wait_for_http "http://127.0.0.1:${LOCAL_LLM_PORT}/health" "Local LLM server"
+  ok "Local LLM server ready"
+}
 
 # Detect whether basic setup steps are needed
 first_time_setup=false
@@ -257,8 +318,14 @@ PY
     ok "HPO terms already present — skipping load"
   fi
 
+  trap cleanup EXIT INT TERM
+
+  start_local_llm
+
   info "Launching Gunicorn"
-  exec gunicorn -c gunicorn.conf.py run:app
+  gunicorn -c gunicorn.conf.py run:app &
+  GUNICORN_PID=$!
+  wait "$GUNICORN_PID"
 else
   info "Starting in development mode"
   info "Run the frontend dev server separately with: (cd frontend && npm run dev)"

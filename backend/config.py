@@ -39,6 +39,21 @@ class Config:
     LOCAL_AI_BIN_DIR = os.path.join(LOCAL_AI_DIR, "bin")
     LOCAL_AI_MODELS_DIR = os.path.join(LOCAL_AI_DIR, "models")
 
+    # Local LLM server — default to a loopback OpenAI-compatible endpoint.
+    LOCAL_LLM_BASE_URL = os.environ.get(
+        "LOCAL_LLM_BASE_URL",
+        "http://127.0.0.1:8080/v1/chat/completions",
+    )
+    LOCAL_LLM_MODEL_FILE = os.environ.get(
+        "LOCAL_LLM_MODEL_FILE",
+        os.path.join(LOCAL_AI_MODELS_DIR, "Qwen3.5-4B-Q4_K_M.gguf"),
+    )
+    LOCAL_LLM_MODEL = os.environ.get(
+        "LOCAL_LLM_MODEL",
+        "qwen3.5-4b-instruct",
+    )
+    LOCAL_LLM_TIMEOUT = int(os.environ.get("LOCAL_LLM_TIMEOUT", "120"))
+
     # Max upload size for VCF files (default 5000 MB)
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "5000")) * 1024 * 1024
 
