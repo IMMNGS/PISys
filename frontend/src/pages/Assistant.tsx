@@ -79,7 +79,10 @@ export default function Assistant() {
     const text = input.trim();
     if (!text || loading) return;
 
-    const nextMessages = [...messages, { role: "user" as const, content: text }];
+    const nextMessages = [
+      ...messages,
+      { role: "user" as const, content: text },
+    ];
     setError(null);
     setLoading(true);
     setMessages(nextMessages);
@@ -107,7 +110,9 @@ export default function Assistant() {
   };
 
   const handleReset = () => {
-    setMessages([{ role: "assistant", content: "Ask anything about the local model." }]);
+    setMessages([
+      { role: "assistant", content: "Ask anything about the local model." },
+    ]);
     setError(null);
   };
 
@@ -147,7 +152,9 @@ export default function Assistant() {
                 onClick={() => setInput(item.prompt)}
               >
                 <div className="assistant-prompt-card-title">{item.title}</div>
-                <div className="assistant-prompt-card-detail">{item.detail}</div>
+                <div className="assistant-prompt-card-detail">
+                  {item.detail}
+                </div>
               </button>
             ))}
           </div>
@@ -190,7 +197,9 @@ export default function Assistant() {
             />
 
             <div className="assistant-composer-footer-light">
-              <div className="assistant-compose-hint">Ctrl/⌘ + Enter to send</div>
+              <div className="assistant-compose-hint">
+                Ctrl/⌘ + Enter to send
+              </div>
               <div className="flex-gap">
                 <button className="btn btn-outline" onClick={handleReset}>
                   New chat
@@ -211,8 +220,14 @@ export default function Assistant() {
       </main>
 
       {settingsOpen && (
-        <div className="assistant-modal-backdrop" onClick={() => setSettingsOpen(false)}>
-          <div className="assistant-modal assistant-modal-light" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="assistant-modal-backdrop"
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div
+            className="assistant-modal assistant-modal-light"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="assistant-modal-header assistant-modal-header-light">
               <h3>Model settings</h3>
               <button
@@ -234,7 +249,9 @@ export default function Assistant() {
                   onChange={(e) => {
                     const filename = e.target.value;
                     setModel(filename);
-                    const selected = models.find((item) => item.filename === filename);
+                    const selected = models.find(
+                      (item) => item.filename === filename,
+                    );
                     setModelLabel(selected?.label || filename);
                   }}
                 >
@@ -295,7 +312,8 @@ export default function Assistant() {
               </label>
 
               <p className="text-muted mb-0">
-                Changing the selected model file requires restarting the local LLM server.
+                Changing the selected model file requires restarting the local
+                LLM server.
               </p>
             </div>
           </div>

@@ -23,7 +23,10 @@ export default function App() {
           <Route path="/manage-hpo" element={<ManageHpo />} />
           <Route path="/stats" element={<DescriptiveStats />} />
           <Route path="/assistant" element={<Assistant />} />
-          <Route path="/explain" element={<Navigate to="/assistant" replace />} />
+          <Route
+            path="/explain"
+            element={<Navigate to="/assistant" replace />}
+          />
           <Route path="/llm" element={<Navigate to="/assistant" replace />} />
         </Routes>
       </main>
