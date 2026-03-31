@@ -15,6 +15,37 @@ ok()    { echo -e "${GREEN}✓ $*${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $*${NC}"; }
 fail()  { echo -e "${RED}✗ $*${NC}"; exit 1; }
 
+find_cmake() {
+  if command -v cmake &>/dev/null; then
+    command -v cmake
+    return 0
+  fi
+
+  if command -v cmake.exe &>/dev/null; then
+    command -v cmake.exe
+    return 0
+  fi
+
+  return 1
+}
+
+find_cmake_generator() {
+  case "$(uname -s 2>/dev/null || echo "")" in
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      if command -v ninja &>/dev/null || command -v ninja.exe &>/dev/null; then
+        echo "Ninja"
+        return 0
+      fi
+      if command -v nmake &>/dev/null || command -v nmake.exe &>/dev/null; then
+        echo "NMake Makefiles"
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
@@ -248,12 +279,22 @@ ensure_llama_cpp() {
     info "Using existing llama.cpp checkout at $llama_cpp_dir"
   fi
 
-  if ! command -v cmake &>/dev/null; then
-    fail "cmake is required to build llama.cpp"
+  cmake_bin="$(find_cmake || true)"
+  if [[ -z "$cmake_bin" ]]; then
+    fail "CMake is required to build llama.cpp. If you just installed it on Windows, restart Git Bash or add CMake's bin folder to PATH."
+  fi
+
+  cmake_generator="$(find_cmake_generator || true)"
+  if [[ -z "$cmake_generator" && "$(uname -s 2>/dev/null || echo "")" =~ ^(MINGW|MSYS|CYGWIN|Windows_NT) ]]; then
+    fail "CMake was found, but no build toolchain was found. Install Ninja or open Git Bash from a Visual Studio Developer shell so NMake is on PATH."
   fi
 
   info "Configuring llama.cpp build"
-  cmake -S "$llama_cpp_dir" -B "$llama_cpp_build_dir" -DLLAMA_BUILD_SERVER=ON
+  if [[ -n "$cmake_generator" ]]; then
+    "$cmake_bin" -G "$cmake_generator" -S "$llama_cpp_dir" -B "$llama_cpp_build_dir" -DLLAMA_BUILD_SERVER=ON
+  else
+    "$cmake_bin" -S "$llama_cpp_dir" -B "$llama_cpp_build_dir" -DLLAMA_BUILD_SERVER=ON
+  fi
 
   local build_jobs="4"
   if command -v nproc &>/dev/null; then
@@ -263,7 +304,7 @@ ensure_llama_cpp() {
   fi
 
   info "Building llama.cpp server"
-  cmake --build "$llama_cpp_build_dir" -j "$build_jobs"
+  "$cmake_bin" --build "$llama_cpp_build_dir" -j "$build_jobs"
 
   ok "llama.cpp built under $llama_cpp_build_dir"
 }
@@ -323,8 +364,11 @@ if [ "$first_time_setup" = true ]; then
     if ! command -v git &>/dev/null; then
       fail "Git is required to clone llama.cpp automatically"
     fi
-    if ! command -v cmake &>/dev/null; then
-      fail "cmake is required to build llama.cpp automatically"
+    if ! find_cmake &>/dev/null; then
+      fail "CMake is required to build llama.cpp automatically. If you just installed it on Windows, restart Git Bash or add CMake's bin folder to PATH."
+    fi
+    if ! find_cmake_generator &>/dev/null && [[ "$(uname -s 2>/dev/null || echo "")" =~ ^(MINGW|MSYS|CYGWIN|Windows_NT) ]]; then
+      fail "CMake is installed, but no build toolchain was found. Install Ninja or open Git Bash from a Visual Studio Developer shell so NMake is on PATH."
     fi
   fi
 

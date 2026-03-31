@@ -70,6 +70,22 @@ function Test-HttpReady([string]$Url, [int]$Attempts = 60, [int]$DelaySeconds = 
     return $false
 }
 
+function Test-LlamaCppReady {
+    $BuildDir = Join-Path $ProjectDir 'data\local_ai\src\llama.cpp\build'
+    $ServerCandidates = @(
+        (Join-Path $BuildDir 'bin\llama-server'),
+        (Join-Path $BuildDir 'bin\server')
+    )
+
+    foreach ($candidate in $ServerCandidates) {
+        if (Test-Path $candidate) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Ensure-LlamaCpp {
     $LocalAiSrcDir = Join-Path $ProjectDir 'data\local_ai\src'
     $LlamaCppDir = Join-Path $LocalAiSrcDir 'llama.cpp'
@@ -339,7 +355,13 @@ with app.app_context():
     Write-Ok 'HPO terms check completed'
 
     if (-not $NoAi) {
-        Ensure-LlamaCpp
+        if (Test-LlamaCppReady) {
+            Write-Ok 'Existing llama.cpp build found; skipping automatic setup'
+        } elseif ((Get-Command git -ErrorAction SilentlyContinue) -and (Get-Command cmake -ErrorAction SilentlyContinue)) {
+            Ensure-LlamaCpp
+        } else {
+            Write-Warn 'Git or CMake is not available; skipping automatic llama.cpp setup and falling back to the mock/local fallback server if needed'
+        }
         Write-Info 'Starting local LLM server'
         Start-Process -FilePath $VenvPy -ArgumentList @('scripts/start_local_llm.py', '--mode', 'auto', '--host', '127.0.0.1', '--port', '8080') -PassThru | Out-Null
         if (-not (Test-HttpReady 'http://127.0.0.1:8080/health')) {
