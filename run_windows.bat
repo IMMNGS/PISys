@@ -35,4 +35,8 @@ goto parse_args
 :done_args
 echo [HA] Launching Windows setup/runner...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %PS_ARGS%
-exit /b %ERRORLEVEL%
+set "EXIT_CODE=%ERRORLEVEL%"
+echo.
+echo [HA] Press any key to close this window.
+pause >nul
+exit /b %EXIT_CODE%
