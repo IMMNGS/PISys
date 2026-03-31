@@ -390,7 +390,6 @@ export default function Assistant() {
               </div>
             )}
           </div>
-
         </aside>
 
         <section className="assistant-main-column-light">
@@ -622,7 +621,6 @@ export default function Assistant() {
                   }
                 />
               </label>
-
             </div>
           </div>
         </div>
