@@ -1,0 +1,3 @@
+# Keep shell and Python entrypoints on LF to avoid shebang CRLF issues on macOS/Linux
+*.sh text eol=lf
+*.py text eol=lf
