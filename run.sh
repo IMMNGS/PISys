@@ -222,11 +222,59 @@ PY
   fail "$label did not become ready at $url"
 }
 
+ensure_llama_cpp() {
+  local local_ai_src_dir="$PROJECT_DIR/data/local_ai/src"
+  local llama_cpp_dir="$local_ai_src_dir/llama.cpp"
+
+  mkdir -p "$local_ai_src_dir"
+
+  local llama_cpp_build_dir="$llama_cpp_dir/build"
+  local llama_cpp_server=""
+  if [[ -x "$llama_cpp_build_dir/bin/llama-server" ]]; then
+    llama_cpp_server="$llama_cpp_build_dir/bin/llama-server"
+  elif [[ -x "$llama_cpp_build_dir/bin/server" ]]; then
+    llama_cpp_server="$llama_cpp_build_dir/bin/server"
+  fi
+
+  if [[ -n "$llama_cpp_server" ]]; then
+    ok "llama.cpp already built: $llama_cpp_server"
+    return 0
+  fi
+
+  if [[ ! -d "$llama_cpp_dir" ]]; then
+    info "Downloading llama.cpp into $llama_cpp_dir"
+    git clone --depth 1 https://github.com/ggerganov/llama.cpp.git "$llama_cpp_dir"
+  else
+    info "Using existing llama.cpp checkout at $llama_cpp_dir"
+  fi
+
+  if ! command -v cmake &>/dev/null; then
+    fail "cmake is required to build llama.cpp"
+  fi
+
+  info "Configuring llama.cpp build"
+  cmake -S "$llama_cpp_dir" -B "$llama_cpp_build_dir" -DLLAMA_BUILD_SERVER=ON
+
+  local build_jobs="4"
+  if command -v nproc &>/dev/null; then
+    build_jobs="$(nproc)"
+  elif command -v sysctl &>/dev/null; then
+    build_jobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  fi
+
+  info "Building llama.cpp server"
+  cmake --build "$llama_cpp_build_dir" -j "$build_jobs"
+
+  ok "llama.cpp built under $llama_cpp_build_dir"
+}
+
 start_local_llm() {
   if [[ "$RUN_LOCAL_LLM" == "0" ]]; then
     warn "RUN_LOCAL_LLM=0 — skipping local LLM startup"
     return 0
   fi
+
+  ensure_llama_cpp
 
   if [[ ! -f "$LOCAL_LLM_MODEL_FILE" ]]; then
     fail "Local LLM model file not found: $LOCAL_LLM_MODEL_FILE"
@@ -271,6 +319,15 @@ if [ "$first_time_setup" = true ]; then
   fi
   ok "Node: $(node --version)"
 
+  if [[ "$RUN_LOCAL_LLM" != "0" ]]; then
+    if ! command -v git &>/dev/null; then
+      fail "Git is required to clone llama.cpp automatically"
+    fi
+    if ! command -v cmake &>/dev/null; then
+      fail "cmake is required to build llama.cpp automatically"
+    fi
+  fi
+
   # Create venv if missing
   if [ ! -d "$PROJECT_DIR/.venv" ]; then
     info "Creating virtual environment at .venv"
@@ -314,6 +371,11 @@ CSV
     ok "Created data/disease_terms.csv template"
   fi
   ok "data/, data/vcf/, data/rag/, and data/local_ai/ ready"
+
+  if [[ "$RUN_LOCAL_LLM" != "0" ]]; then
+    info "Setting up llama.cpp"
+    ensure_llama_cpp
+  fi
 
   # MySQL DB creation if CLI available
   if command -v mysql &>/dev/null; then

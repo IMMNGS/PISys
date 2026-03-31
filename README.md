@@ -67,8 +67,7 @@ HA/
 ├── gunicorn.conf.py          # Gunicorn production server configuration
 ├── run.sh                    # One-command setup/dev/production script
 ├── scripts/
-│   ├── start_local_llm.py    # Local LLM launcher (llama.cpp or mock server)
-│   └── download_qwen_model.sh # Optional helper to fetch a GGUF model
+│   └── start_local_llm.py    # Local LLM launcher (auto-sets up llama.cpp or mock server)
 ├── .env.example              # Environment variable template
 └── README.md
 ```
@@ -80,12 +79,14 @@ chmod +x run.sh
 bash run.sh setup
 ```
 
+For Windows users, run [run_windows.bat](run_windows.bat) from the project root. It supports the same modes as [run.sh](run.sh): `setup`, `development`, `production`, plus `--no-ai` to skip the local LLM. Production uses Waitress on Windows instead of Gunicorn.
+
 The setup script will:
 
-1. Check prerequisites (Python 3, Node.js, MySQL)
+1. Check prerequisites (Python 3, Node.js, MySQL; plus Git and CMake when local LLM startup is enabled)
 2. Install Python dependencies
 3. Create the MySQL database
-4. Create data directories (`data/`, `data/vcf/`, `data/variant_uploads/`, `data/local_ai/bin/`, `data/local_ai/models/`)
+4. Create data directories (`data/`, `data/vcf/`, `data/variant_uploads/`, `data/local_ai/bin/`, `data/local_ai/models/`) and automatically clone/build llama.cpp into `data/local_ai/src/llama.cpp`
 5. Install frontend dependencies and build the React/TypeScript app
 
 After setup, load HPO terms from the **Manage HPO** page (or `POST /api/hpo_terms/refresh`), then upload patient data via the **Upload** page.
@@ -106,7 +107,7 @@ Change the default admin password before exposing the service beyond a trusted l
 
 ### Local model storage
 
-The local LLM runtime lives under `data/local_ai/` by default. The app exposes this as `LOCAL_AI_DIR` in configuration, with `bin/` for runtime binaries and `models/` for GGUF weights. That location is ignored by Git, so large model files stay out of the repository.
+The local LLM runtime lives under `data/local_ai/` by default. The app exposes this as `LOCAL_AI_DIR` in configuration, with `bin/` for runtime binaries and `models/` for GGUF weights. During setup, the project automatically clones and builds llama.cpp into `data/local_ai/src/llama.cpp`, so you do not need to install it manually. That location is ignored by Git, so large model files stay out of the repository.
 
 ### Local LLM chat
 
@@ -120,9 +121,9 @@ Set these environment variables to match your local server:
 
 Then open the **Local LLM** page in the app. The page also calls `GET /api/local-llm/models` to list available GGUF files in the configured model directory.
 
-To populate the model directory, use [scripts/download_qwen_model.sh](scripts/download_qwen_model.sh) or copy your own GGUF into `data/local_ai/models/`. The app looks for `LOCAL_LLM_MODEL_FILE` first, then falls back to a file name derived from `LOCAL_LLM_MODEL`.
+To run a model, download a Hugging Face GGUF file and copy the `.gguf` file into `data/local_ai/models/`. The default setup expects `Qwen3.5-4B-Q4_K_M.gguf`, but you can point `LOCAL_LLM_MODEL_FILE` at any compatible GGUF file in that folder.
 
-If the Hugging Face repo requires access, set `HF_TOKEN` or `HUGGINGFACE_TOKEN` before running the download helper.
+If the Hugging Face repo requires access, set `HF_TOKEN` or `HUGGINGFACE_TOKEN` before downloading the file.
 
 The easiest place is a root-level [.env](.env) file, for example:
 
@@ -131,7 +132,7 @@ The easiest place is a root-level [.env](.env) file, for example:
 
 Then open the app in your browser.
 
-For the full production workflow, [run.sh](run.sh) starts Gunicorn plus the local LLM server together in `production` mode. By default it uses the GGUF in `data/local_ai/models/` and the loopback port `8080`. Use `bash run.sh --no-ai production` to launch the web app without the local model process. You can still set `RUN_LOCAL_LLM=0` in the environment as an override.
+For the full production workflow, [run.sh](run.sh) starts Gunicorn plus the local LLM server together in `production` mode. It also clones and builds llama.cpp automatically when needed, then uses the GGUF in `data/local_ai/models/` and the loopback port `8080`. Use `bash run.sh --no-ai production` to launch the web app without the local model process. You can still set `RUN_LOCAL_LLM=0` in the environment as an override.
 
 The frontend redirects unauthenticated users to the sign-in page and shows an admin-only audit dashboard link after login.
 

@@ -8,3 +8,4 @@ cryptography
 openpyxl
 python-docx
 gunicorn
+waitress

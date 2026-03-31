@@ -95,11 +95,10 @@ HA/
 ├── README.md                     # Project README
 ├── DOCUMENTATION.md              # This file
 ├── scripts/                      # Setup helpers and local LLM launcher
-│   ├── download_qwen_model.sh    # Optional GGUF download helper
 │   ├── rag/                      # Local RAG research collection + corpus builders
 │   │   ├── fetch_public_research.py  # Europe PMC downloader for raw public research
 │   │   └── build_rag_corpus.py       # Chunked JSONL corpus builder
-│   └── start_local_llm.py        # llama.cpp launcher or mock OpenAI-compatible server
+│   └── start_local_llm.py        # auto-sets up llama.cpp or mock OpenAI-compatible server
 │
 ├── backend/                      # Flask backend package
 │   ├── __init__.py               # Package marker
@@ -175,11 +174,11 @@ bash run.sh setup
 
 The `run.sh setup` step performs the following steps:
 
-1. **Prerequisite check** — verifies Python 3, pip, Node.js, npm, and MySQL CLI are available.
+1. **Prerequisite check** — verifies Python 3, pip, Node.js, npm, and MySQL CLI are available; when local LLM startup is enabled, it also requires Git and CMake for the automatic llama.cpp checkout/build.
 2. **Virtual environment** — creates/activates a `.venv` directory.
 3. **Python dependencies** — `pip install -r requirements.txt`.
 4. **MySQL database** — creates the `patient_db` database (or the database named by `MYSQL_DB`) when `mysql` CLI is present.
-5. **Data directories** — creates `data/`, `data/vcf/`, and `data/variant_uploads/`.
+5. **Data directories** — creates `data/`, `data/vcf/`, and `data/variant_uploads/`, then clones/builds llama.cpp into `data/local_ai/src/llama.cpp` when local LLM startup is enabled.
 6. **Frontend build** — runs `npm install && npm run build` in `frontend/`.
 
 After setup, start the server:
@@ -1360,6 +1359,7 @@ data/
       └── trio/
          └── *.xlsx / *.xls
 └── local_ai/                 # Local LLM runtime and model weights
+   ├── src/llama.cpp/         # Auto-cloned/built llama.cpp source tree
    ├── bin/
    └── models/
 ```
