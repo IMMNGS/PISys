@@ -17,6 +17,11 @@ class Config:
     # Single database for everything
     MYSQL_DB = os.environ.get("MYSQL_DB", "patient_db")
 
+    # Local authentication bootstrap values.
+    ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin12345")
+    ADMIN_FULL_NAME = os.environ.get("ADMIN_FULL_NAME", "Administrator")
+
     SQLALCHEMY_DATABASE_URI = (
         f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}"
         f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
@@ -53,6 +58,53 @@ class Config:
         "qwen3.5-4b-instruct",
     )
     LOCAL_LLM_TIMEOUT = int(os.environ.get("LOCAL_LLM_TIMEOUT", "120"))
+
+    # Local RAG corpus — fully offline once downloaded and built.
+    RAG_CORPUS_PATH = os.environ.get(
+        "RAG_CORPUS_PATH",
+        os.path.join(DATA_DIR, "rag", "corpus", "corpus.jsonl"),
+    )
+    RAG_ENABLED = os.environ.get("RAG_ENABLED", "1") in {
+        "1",
+        "true",
+        "True",
+        "yes",
+        "on",
+    }
+    RAG_MAX_CONTEXT_CHUNKS = int(os.environ.get("RAG_MAX_CONTEXT_CHUNKS", "4"))
+    RAG_MAX_CONTEXT_CHARS = int(os.environ.get("RAG_MAX_CONTEXT_CHARS", "6000"))
+
+    # Optional adapter/provider hints for local OpenAI-compatible runtimes.
+    # Supported values include: openai, ollama, vllm, mock.
+    LOCAL_LLM_PROVIDER = os.environ.get("LOCAL_LLM_PROVIDER", "openai").strip().lower()
+
+    # Response cache for repeated prompts. Stored in the existing MySQL database.
+    LOCAL_LLM_CACHE_TTL_SECONDS = int(
+        os.environ.get("LOCAL_LLM_CACHE_TTL_SECONDS", str(24 * 60 * 60))
+    )
+
+    # Logging controls to reduce PHI exposure in terminal / app logs.
+    LOCAL_LLM_LOG_PROMPTS = os.environ.get("LOCAL_LLM_LOG_PROMPTS", "0") in {
+        "1",
+        "true",
+        "True",
+        "yes",
+        "on",
+    }
+    LOCAL_LLM_LOG_RESPONSES = os.environ.get("LOCAL_LLM_LOG_RESPONSES", "0") in {
+        "1",
+        "true",
+        "True",
+        "yes",
+        "on",
+    }
+    LOCAL_LLM_LOG_REDACT = os.environ.get("LOCAL_LLM_LOG_REDACT", "1") in {
+        "1",
+        "true",
+        "True",
+        "yes",
+        "on",
+    }
 
     # Max upload size for VCF files (default 5000 MB)
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "5000")) * 1024 * 1024

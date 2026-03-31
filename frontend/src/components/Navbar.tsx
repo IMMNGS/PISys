@@ -1,6 +1,9 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 
 export default function Navbar() {
+  const { user, isAdmin, logout } = useAuth();
+
   return (
     <nav className="navbar">
       <div className="container">
@@ -31,7 +34,20 @@ export default function Navbar() {
           <li>
             <NavLink to="/assistant">AI Assistant</NavLink>
           </li>
+          {isAdmin && (
+            <li>
+              <NavLink to="/admin">Admin</NavLink>
+            </li>
+          )}
         </ul>
+        <div className="navbar-user-area">
+          <span className="navbar-user-chip">
+            {user?.full_name || user?.username || "Signed in"}
+          </span>
+          <button className="btn btn-outline-light btn-sm" type="button" onClick={() => void logout()}>
+            Logout
+          </button>
+        </div>
       </div>
     </nav>
   );

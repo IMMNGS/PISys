@@ -15,12 +15,15 @@ HA/
 │   ├── app.py               # Flask factory – serves API + built SPA
 │   ├── config.py             # MySQL & app configuration (env-var driven)
 │   ├── models.py             # SQLAlchemy models (patients, hpo_terms, disease_terms, singleton, trio, vcf_files, variant_uploads, patient_hpo, patient_disease_term)
+│   ├── security.py           # Session auth, password hashing, and audit helpers
 │   └── routes/
 │       ├── __init__.py       # Blueprint registration
+│       ├── auth.py           # Login/logout/me/password-change routes
+│       ├── admin.py          # Admin user and audit log routes
 │       ├── disease_terms.py  # Free-text disease term endpoints (search, create, assign)
 │       ├── helpers.py        # Shared constants & utilities
 │       ├── hpo_terms.py      # HPO term endpoints (search, refresh from pyhpo)
-│       ├── local_llm.py      # Local LLM chat proxy for loopback servers
+│       ├── local_llm.py      # Local LLM chat/model endpoints for loopback servers
 │       ├── patients.py       # Patient CRUD, XLSX import, HPO assignment, paginated list & options
 │       ├── singletons.py     # Singleton variant CRUD + XLSX import
 │       ├── trios.py          # Trio variant CRUD + XLSX import
@@ -30,8 +33,8 @@ HA/
 ├── data/                     # Data directory (local now, remote-mountable in future)
 │   ├── all_hpo_terms.csv     # ~19,500 HPO terms (loadable via Manage HPO page)
 │   └── vcf/                  # VCF files uploaded per patient
-│   └── variant_uploads/       # Original singleton/trio XLSX files (per patient, per file type)
-│   └── local_ai/             # Local LLM runtime + weights (gitignored)
+│   ├── variant_uploads/       # Original singleton/trio XLSX files (per patient, per file type)
+│   └── local_ai/              # Local LLM runtime + weights (gitignored)
 │
 ├── frontend/                 # React + TypeScript (Vite)
 │   ├── index.html
@@ -56,14 +59,16 @@ HA/
 │           ├── SelectPatients.tsx   # Patient table with server-side filters & pagination
 │           ├── Upload.tsx           # File upload with searchable patient selector
 │           ├── Report.tsx           # Report generation with searchable lab number selector
-│           ├── LocalLlm.tsx         # Local chat UI for loopback LLM servers
+│           ├── Assistant.tsx        # Local AI assistant page
 │           └── ManageHpo.tsx
 │
 ├── requirements.txt          # Python dependencies
 ├── run.py                    # Entry-point (dev: python run.py, prod: gunicorn run:app)
 ├── gunicorn.conf.py          # Gunicorn production server configuration
-├── setup.sh                  # One-command setup script
-├── start_production.sh       # One-command production start script
+├── run.sh                    # One-command setup/dev/production script
+├── scripts/
+│   ├── start_local_llm.py    # Local LLM launcher (llama.cpp or mock server)
+│   └── download_qwen_model.sh # Optional helper to fetch a GGUF model
 ├── .env.example              # Environment variable template
 └── README.md
 ```
@@ -80,18 +85,40 @@ The setup script will:
 1. Check prerequisites (Python 3, Node.js, MySQL)
 2. Install Python dependencies
 3. Create the MySQL database
-4. Create data directories (`data/`, `data/vcf/`, `data/variant_uploads/`, `data/local_ai/`)
+4. Create data directories (`data/`, `data/vcf/`, `data/variant_uploads/`, `data/local_ai/bin/`, `data/local_ai/models/`)
 5. Install frontend dependencies and build the React/TypeScript app
 
 After setup, load HPO terms from the **Manage HPO** page (or `POST /api/hpo_terms/refresh`), then upload patient data via the **Upload** page.
 
+### Authentication and access control
+
+The app now uses session-cookie authentication for the browser UI and API:
+
+- `GET /api/auth/me` reports the current session user
+- `POST /api/auth/login` starts a session after password verification
+- `POST /api/auth/logout` clears the session
+- `POST /api/auth/change-password` lets a signed-in user rotate their password
+- `GET /api/admin/audit-logs` and `GET /api/admin/users` are restricted to administrators
+
+If no users exist yet, the app seeds a local administrator account on startup using `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `ADMIN_FULL_NAME`. Defaults are `admin`, `admin12345`, and `Administrator`.
+
+Change the default admin password before exposing the service beyond a trusted local network.
+
 ### Local model storage
 
-If you add a local runtime such as llama.cpp, keep all binaries and weights under `data/local_ai/` by default. The app exposes this as `LOCAL_AI_DIR` in configuration, with subdirectories for binaries and model weights. That location is ignored by Git, so large model files stay out of the repository.
+The local LLM runtime lives under `data/local_ai/` by default. The app exposes this as `LOCAL_AI_DIR` in configuration, with `bin/` for runtime binaries and `models/` for GGUF weights. That location is ignored by Git, so large model files stay out of the repository.
 
 ### Local LLM chat
 
-The app includes a local-only chat page that forwards prompts to a loopback OpenAI-compatible server. The default model name is `qwen3.5-4b-instruct`. Set `LOCAL_LLM_BASE_URL` to your local server and `LOCAL_LLM_MODEL` to the installed model name, then open the **Local LLM** page in the app.
+The app includes a local-only chat page that forwards prompts to a loopback OpenAI-compatible server. The default model name is `qwen3.5-4b-instruct`, and the default model file is `data/local_ai/models/Qwen3.5-4B-Q4_K_M.gguf`.
+
+Set these environment variables to match your local server:
+
+- `LOCAL_LLM_BASE_URL=http://127.0.0.1:8080/v1/chat/completions`
+- `LOCAL_LLM_MODEL=qwen3.5-4b-instruct`
+- `LOCAL_LLM_MODEL_FILE=...` if you want to override the GGUF path
+
+Then open the **Local LLM** page in the app. The page also calls `GET /api/local-llm/models` to list available GGUF files in the configured model directory.
 
 To populate the model directory, use [scripts/download_qwen_model.sh](scripts/download_qwen_model.sh) or copy your own GGUF into `data/local_ai/models/`. The app looks for `LOCAL_LLM_MODEL_FILE` first, then falls back to a file name derived from `LOCAL_LLM_MODEL`.
 
@@ -102,9 +129,29 @@ The easiest place is a root-level [.env](.env) file, for example:
 - `HF_TOKEN=hf_...`
 - or `HUGGINGFACE_TOKEN=hf_...`
 
-Then open [http://localhost:5000](http://localhost:5000).
+Then open the app in your browser.
 
-For the full production workflow, [run.sh](run.sh) now starts Gunicorn plus the local LLM server together in `production` mode. By default it uses the GGUF in `data/local_ai/models/` and the loopback port `8080`. Set `RUN_LOCAL_LLM=0` only if you want to launch the web app without the local model process.
+For the full production workflow, [run.sh](run.sh) starts Gunicorn plus the local LLM server together in `production` mode. By default it uses the GGUF in `data/local_ai/models/` and the loopback port `8080`. Use `bash run.sh --no-ai production` to launch the web app without the local model process. You can still set `RUN_LOCAL_LLM=0` in the environment as an override.
+
+The frontend redirects unauthenticated users to the sign-in page and shows an admin-only audit dashboard link after login.
+
+### Local RAG data collection
+
+To build a fully offline retrieval corpus, use the local RAG layout under [data/rag](data/rag). The repo now includes:
+
+- [scripts/rag/fetch_public_research.py](scripts/rag/fetch_public_research.py) to download public research metadata and abstracts from Europe PMC
+- [scripts/rag/build_rag_corpus.py](scripts/rag/build_rag_corpus.py) to turn downloaded records into chunked JSONL documents for embedding and retrieval
+
+The default seed queries live in [data/rag/queries.txt](data/rag/queries.txt). The resulting raw downloads and chunked corpus stay local and can be regenerated at any time.
+
+The local assistant now automatically uses [data/rag/corpus/corpus.jsonl](data/rag/corpus/corpus.jsonl) when it exists, and it returns the matched local research sources alongside each reply.
+
+Relevant RAG settings:
+
+- `RAG_ENABLED=1`
+- `RAG_CORPUS_PATH=data/rag/corpus/corpus.jsonl`
+- `RAG_MAX_CONTEXT_CHUNKS=4`
+- `RAG_MAX_CONTEXT_CHARS=6000`
 
 ## Prerequisites
 
@@ -136,6 +183,9 @@ export MYSQL_PASSWORD=password
 export MYSQL_HOST=localhost
 export MYSQL_PORT=3306
 export MYSQL_DB=patient_db
+export ADMIN_USERNAME=admin
+export ADMIN_PASSWORD=change-me
+export ADMIN_FULL_NAME=Administrator
 ```
 
 ### 4. Build the frontend

@@ -2,11 +2,12 @@ import os
 import logging
 
 import pymysql
-from flask import Flask, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from backend.config import config as config_map
 from backend.models import db
+from backend.security import load_current_user, log_access, seed_default_admin_user, auth_enabled
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
@@ -57,15 +58,40 @@ def create_app(config_name="development"):
 
     # CORS — restrict in production, allow all in dev
     if app.debug:
-        CORS(app, resources={r"/api/*": {"origins": "*"}})
+        CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
     else:
         allowed = os.environ.get("CORS_ORIGINS", "").split(",")
         allowed = [o.strip() for o in allowed if o.strip()]
         if allowed:
-            CORS(app, resources={r"/api/*": {"origins": allowed}})
+            CORS(app, resources={r"/api/*": {"origins": allowed}}, supports_credentials=True)
+        else:
+            CORS(app, resources={r"/api/*": {"origins": []}}, supports_credentials=True)
+
+    app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
+    app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
+    if not app.debug:
+        app.config.setdefault("SESSION_COOKIE_SECURE", True)
 
     # Initialise extensions
     db.init_app(app)
+
+    @app.before_request
+    def _load_auth_context():
+        user = load_current_user()
+
+        if not request.path.startswith("/api/"):
+            return None
+
+        public_paths = {"/api/auth/login", "/api/auth/me", "/api/auth/logout"}
+        if request.path in public_paths:
+            return None
+
+        if not auth_enabled():
+            return None
+
+        if user is None:
+            return jsonify({"error": "Authentication required"}), 401
+        return None
 
     # Prevent browsers from caching API responses
     @app.after_request
@@ -73,7 +99,7 @@ def create_app(config_name="development"):
         if request.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
-        return response
+        return log_access(response)
 
     # Register API blueprints
     from backend.routes import register_blueprints
@@ -100,5 +126,6 @@ def create_app(config_name="development"):
     _ensure_databases(config_class)
     with app.app_context():
         db.create_all()
+        seed_default_admin_user()
 
     return app

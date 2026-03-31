@@ -1,7 +1,7 @@
 # Patient Information System — Full Codebase Documentation
 
-> **Version:** 1.2.0  
-> **Last Updated:** February 24, 2026  
+> **Version:** 1.4.0  
+> **Last Updated:** March 24, 2026  
 > **Stack:** Python 3 / Flask / SQLAlchemy (backend) · TypeScript / React / Vite (frontend) · MySQL (database)
 
 ---
@@ -26,6 +26,9 @@
    - 6.10 [Trio Routes — backend/routes/trios.py](#610-trio-routes--backendroutestriospy)
    - 6.11 [VCF Routes — backend/routes/vcf.py](#611-vcf-routes--backendroutesvcfpy)
    - 6.12 [Report Routes — backend/routes/reports.py](#612-report-routes--backendroutesreportspy)
+   - 6.13 [Local LLM Routes — backend/routes/local_llm.py](#613-local-llm-routes--backendrouteslocal_llmpy)
+   - 6.14 [Local RAG Corpus & Ingestion Scripts](#614-local-rag-corpus--ingestion-scripts)
+   - 6.15 [Authentication & Audit — backend/security.py, auth.py, admin.py](#615-authentication--audit--backendsecuritypy-authpy-adminpy)
 7. [Frontend — TypeScript / React / Vite](#7-frontend--typescript--react--vite)
    - 7.1 [Build & Dev Configuration](#71-build--dev-configuration)
    - 7.2 [Application Entry — main.tsx & App.tsx](#72-application-entry--maintsx--apptsx)
@@ -91,16 +94,26 @@ HA/
 ├── requirements.txt              # Python dependencies
 ├── README.md                     # Project README
 ├── DOCUMENTATION.md              # This file
+├── scripts/                      # Setup helpers and local LLM launcher
+│   ├── download_qwen_model.sh    # Optional GGUF download helper
+│   ├── rag/                      # Local RAG research collection + corpus builders
+│   │   ├── fetch_public_research.py  # Europe PMC downloader for raw public research
+│   │   └── build_rag_corpus.py       # Chunked JSONL corpus builder
+│   └── start_local_llm.py        # llama.cpp launcher or mock OpenAI-compatible server
 │
 ├── backend/                      # Flask backend package
 │   ├── __init__.py               # Package marker
 │   ├── app.py                    # Flask app factory + SPA serving
 │   ├── config.py                 # Configuration class (env-var driven)
 │   ├── models.py                 # SQLAlchemy ORM models
+│   ├── security.py               # Session auth, password hashing, audit helpers
 │   └── routes/                   # API route blueprints
 │       ├── __init__.py           # Blueprint registration
+│       ├── auth.py               # Login/logout/me/password-change routes
+│       ├── admin.py              # Admin user and audit log routes
 │       ├── helpers.py            # Shared utilities & field constants
 │       ├── hpo_terms.py          # HPO term endpoints
+│       ├── local_llm.py          # Local LLM chat + model listing endpoints
 │       ├── patients.py           # Patient CRUD + XLSX import + HPO assignment
 │       ├── singletons.py         # Singleton variant CRUD + XLSX import
 │       ├── trios.py              # Trio variant CRUD + XLSX import
@@ -110,7 +123,9 @@ HA/
 ├── data/                         # Data directory (configurable via DATA_DIR)
 │   ├── all_hpo_terms.csv         # ~19,500 HPO terms (loadable via Manage HPO page)
 │   ├── vcf/                      # Patient VCF files (one subfolder per lab_number)
-│   └── variant_uploads/          # Raw singleton/trio XLSX uploads (per patient, per type)
+│   ├── variant_uploads/          # Raw singleton/trio XLSX uploads (per patient, per type)
+│   ├── rag/                      # Local RAG raw downloads, corpus, and eval sets
+│   └── local_ai/                 # Local LLM binaries + GGUF weights (gitignored)
 │
 ├── frontend/                     # React + TypeScript SPA (Vite)
 │   ├── index.html                # HTML entry-point
@@ -135,6 +150,7 @@ HA/
 │           ├── PatientDetail.tsx     # Full patient detail view
 │           ├── Upload.tsx           # File upload + patient import
 │           ├── Report.tsx           # Report preview & .docx generation
+│           ├── Assistant.tsx        # Local AI assistant / LLM chat page
 │           └── ManageHpo.tsx        # HPO term assignment + browsing
 ```
 
@@ -843,6 +859,68 @@ Returns the `.docx` as a downloadable attachment named `report_<lab_number>_<im_
 - `METHODS_SECTIONS` — dict of eight method subsection texts.
 - `DISCLAIMERS` — list of six disclaimer strings.
 
+### 6.13 Local LLM Routes — `backend/routes/local_llm.py`
+
+**Blueprint:** `local_llm_bp` (name: `"local_llm"`)
+
+| Method | Endpoint                | Handler                 | Description                                  |
+| ------ | ----------------------- | ----------------------- | -------------------------------------------- |
+| GET    | `/api/local-llm/models` | `list_local_llm_models` | List local GGUF files in the model directory |
+| POST   | `/api/local-llm/chat`   | `chat_local_llm`        | Forward chat requests to the loopback server |
+
+**`GET /api/local-llm/models`**
+
+- Reads `LOCAL_AI_MODELS_DIR` from configuration.
+- Returns a `models` array with display labels, absolute paths, and a selected default model.
+- Falls back to the configured default GGUF path if the directory is empty.
+
+**`POST /api/local-llm/chat`**
+
+Request body:
+
+```json
+{
+  "model": "qwen3.5-4b-instruct",
+  "messages": [
+    { "role": "system", "content": "..." },
+    { "role": "user", "content": "..." }
+  ],
+  "temperature": 0.2,
+  "top_p": 0.95,
+  "max_tokens": 512
+}
+```
+
+- Validates that `LOCAL_LLM_BASE_URL` points to a local/loopback host.
+- Sends an OpenAI-compatible request to the configured local model server.
+- Returns `{ model, reply, raw }` so the frontend can display the model answer and keep the upstream payload for debugging.
+- Uses `LOCAL_LLM_TIMEOUT` for the upstream request timeout.
+
+### 6.14 Local RAG Corpus & Ingestion Scripts
+
+The app includes a fully local retrieval corpus under `data/rag/` plus helper scripts for collecting public research that can be used offline after download.
+
+**Directory layout:**
+
+- `data/rag/raw/` — raw downloads from public research sources
+- `data/rag/corpus/` — chunked JSONL corpus used for embeddings and retrieval
+- `data/rag/eval/` — held-out evaluation questions and answers
+
+**Seed queries:**
+
+- `data/rag/queries.txt` — default search queries focused on rare disease, phenotype, and variant interpretation topics
+
+**Scripts:**
+
+- `scripts/rag/fetch_public_research.py` — downloads public article metadata and abstracts from Europe PMC; can also fetch open-access full text XML when a PMCID exists
+- `scripts/rag/build_rag_corpus.py` — converts the raw manifests and text files into a chunked JSONL corpus suitable for embedding and retrieval
+
+**Operational guidance:**
+
+- The download step is the only internet-dependent part; the resulting corpus stays on disk and can be reused fully offline.
+- Keep provenance metadata with every record, including PMID/PMCID/DOI, source URL, query, and fetch timestamp.
+- Keep evaluation data separate from the retrieval corpus to avoid leakage into benchmarks.
+
 ---
 
 ## 7. Frontend — TypeScript / React / Vite
@@ -885,6 +963,9 @@ Returns the `.docx` as a downloadable attachment named `report_<lab_number>_<im_
 | `/upload`       | `Upload`         | File upload & patient import        |
 | `/report`       | `Report`         | Clinical report generation          |
 | `/manage-hpo`   | `ManageHpo`      | HPO term management & assignment    |
+| `/assistant`    | `Assistant`      | Local AI assistant / LLM chat       |
+
+Aliases: `/llm` and `/explain` redirect to `/assistant`.
 
 Wraps all routes with `Navbar` and a `<footer>`.
 
@@ -892,14 +973,17 @@ Wraps all routes with `Navbar` and a `<footer>`.
 
 Defines TypeScript interfaces mirroring the backend's JSON serialization:
 
-| Interface       | Description                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------ |
-| `HPOTerm`       | HPO term with id, hpo_id, term_name, definition, synonyms                                  |
-| `SingletonInfo` | Singleton variant finding with all genetic fields                                          |
-| `TrioInfo`      | Trio variant finding (identical structure to SingletonInfo)                                |
-| `VcfFileInfo`   | VCF file metadata (filename, size, upload time)                                            |
-| `PatientInfo`   | Full patient record with optional nested arrays of HPO terms, singletons, trios, VCF files |
-| `HPOTermPage`   | Paginated HPO term response (`items`, `total`, `page`, `pages`)                            |
+| Interface                | Description                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| `HPOTerm`                | HPO term with id, hpo_id, term_name, definition, synonyms                                  |
+| `SingletonInfo`          | Singleton variant finding with all genetic fields                                          |
+| `TrioInfo`               | Trio variant finding (identical structure to SingletonInfo)                                |
+| `VcfFileInfo`            | VCF file metadata (filename, size, upload time)                                            |
+| `PatientInfo`            | Full patient record with optional nested arrays of HPO terms, singletons, trios, VCF files |
+| `HPOTermPage`            | Paginated HPO term response (`items`, `total`, `page`, `pages`)                            |
+| `LocalLlmMessage`        | Local assistant chat message (`role`, `content`)                                           |
+| `LocalLlmChatResponse`   | Local assistant response (`model`, `reply`)                                                |
+| `LocalLlmModelsResponse` | Local assistant model listing (`models`, `selected`)                                       |
 
 ### 7.4 API Client — `api/client.ts`
 
@@ -943,6 +1027,8 @@ async function json<T>(url: string, init?: RequestInit): Promise<T>;
 |             | `uploadTrioXlsx`        | POST        | `/api/patients/:id/upload/trio`       |
 | Reports     | `fetchReportPreview`    | POST        | `/api/report/preview`                 |
 |             | `downloadReport`        | POST        | `/api/report/generate`                |
+| Local LLM   | `fetchLocalLlmModels`   | GET         | `/api/local-llm/models`               |
+|             | `sendLocalLlmChat`      | POST        | `/api/local-llm/chat`                 |
 
 **File uploads** use `FormData` and handle the response as a blob (for report download) or JSON.
 
@@ -954,7 +1040,7 @@ async function json<T>(url: string, init?: RequestInit): Promise<T>;
 
 Top navigation bar using `react-router-dom`'s `NavLink` for active-state highlighting.
 
-**Links:** Home, Patients, Upload, Report, Manage HPO Terms.
+**Links:** Home, Patients, Upload, Report, Manage HPO Terms, Assistant.
 
 #### `DropdownSelect.tsx`
 
@@ -1013,6 +1099,7 @@ Landing page with four feature cards:
 | **Upload**           | `/upload`     | Upload VCF files, singletons, trios, patient lists |
 | **Report**           | `/report`     | Generate clinical .docx reports                    |
 | **Manage HPO Terms** | `/manage-hpo` | Search and assign HPO terms to patients            |
+| **Assistant**        | `/assistant`  | Local AI chat with the loopback LLM server         |
 
 #### `SelectPatients.tsx`
 
@@ -1105,6 +1192,21 @@ HPO term management and patient assignment page.
    - Server-side pagination with page navigation controls.
    - Columns: HPO ID, Term Name, Definition (truncated), Synonyms (truncated).
 
+#### `Assistant.tsx`
+
+Local AI assistant page backed by the local LLM proxy.
+
+**Workflow:**
+
+1. **Load models** — fetches available GGUF files from `/api/local-llm/models` and pre-selects the configured default.
+2. **Compose message** — sends a system prompt plus user messages to `/api/local-llm/chat`.
+3. **Render reply** — shows the model response in a chat-style conversation view.
+
+**Behavior notes:**
+
+- Uses only local/loopback inference endpoints.
+- Keeps a minimal medical-assistant style system prompt and avoids external web access.
+
 ---
 
 ## 8. API Reference
@@ -1182,6 +1284,55 @@ POST   /api/report/preview                  → { patient, variants, defaults }
 POST   /api/report/generate                 → .docx file (binary download)
 ```
 
+#### Local LLM
+
+```
+GET    /api/local-llm/models               → { models, selected }
+POST   /api/local-llm/chat                 → { model, reply, raw }
+```
+
+#### Authentication and Admin
+
+```
+GET    /api/auth/me                        → { authenticated, user }
+POST   /api/auth/login                     → { message, user }
+POST   /api/auth/logout                    → { message }
+POST   /api/auth/change-password           → { message }
+GET    /api/admin/users                    → { items }
+POST   /api/admin/users                    → { message, user }
+GET    /api/admin/audit-logs               → { items, total }
+```
+
+### 6.15 Authentication & Audit — `backend/security.py`, `backend/routes/auth.py`, `backend/routes/admin.py`
+
+**Summary:**
+
+- Session-cookie authentication uses Flask's signed session cookie and a `user_id` stored in the session.
+- Passwords are hashed with Werkzeug's password hashing helpers.
+- Authentication is enabled automatically when at least one `AuthUser` exists; on a fresh database the app seeds a default admin user.
+- Administrator endpoints expose user management and an audit log of authenticated API access.
+
+**Core behaviors:**
+
+- `GET /api/auth/me` returns the current signed-in user, if any.
+- `POST /api/auth/login` validates username/password and creates the session.
+- `POST /api/auth/logout` clears the session.
+- `POST /api/auth/change-password` requires the current password before updating the hash.
+- `GET /api/admin/users` lists all users.
+- `POST /api/admin/users` creates users with `admin` or `user` role.
+- `GET /api/admin/audit-logs` returns access log entries filtered by username, action, or target.
+- Successful API access is written to `access_logs` by the shared audit hook.
+
+**Bootstrap credentials:**
+
+- `ADMIN_USERNAME` default: `admin`
+- `ADMIN_PASSWORD` default: `admin12345`
+- `ADMIN_FULL_NAME` default: `Administrator`
+
+**Important note:**
+
+- Change the default admin password before exposing the app outside a trusted local environment.
+
 ---
 
 ## 9. Data Directory
@@ -1201,6 +1352,9 @@ data/
       │   └── *.xlsx / *.xls
       └── trio/
          └── *.xlsx / *.xls
+└── local_ai/                 # Local LLM runtime and model weights
+   ├── bin/
+   └── models/
 ```
 
 The entire `data/` directory can be relocated by setting the `DATA_DIR` environment variable. This enables:
@@ -1213,28 +1367,40 @@ The entire `data/` directory can be relocated by setting the `DATA_DIR` environm
 
 ## 10. Environment Variables Reference
 
-| Variable                    | Default                    | Used In            | Description                                                 |
-| --------------------------- | -------------------------- | ------------------ | ----------------------------------------------------------- |
-| `FLASK_ENV`                 | `development`              | `run.py`           | Config selection (dev/production)                           |
-| `SECRET_KEY`                | `dev-secret-key-...`       | `config.py`        | Flask session secret key                                    |
-| `MYSQL_USER`                | `root`                     | `config.py`        | MySQL username                                              |
-| `MYSQL_PASSWORD`            | (empty)                    | `config.py`        | MySQL password                                              |
-| `MYSQL_HOST`                | `localhost`                | `config.py`        | MySQL host                                                  |
-| `MYSQL_PORT`                | `3306`                     | `config.py`        | MySQL port                                                  |
-| `MYSQL_DB`                  | `patient_db`               | `config.py`        | MySQL database name                                         |
-| `DATA_DIR`                  | `<project_root>/data`      | `config.py`        | Root directory for VCF, raw variant uploads, and data files |
-| `VARIANT_UPLOAD_DIR`        | `DATA_DIR/variant_uploads` | `config.py`        | Raw singleton/trio upload storage path (derived)            |
-| `MAX_UPLOAD_MB`             | `5000`                     | `config.py`        | Maximum upload size in megabytes                            |
-| `CORS_ORIGINS`              | (none)                     | `app.py`           | Comma-separated allowed origins                             |
-| `GUNICORN_BIND`             | `0.0.0.0:8000`             | `gunicorn.conf.py` | Server bind address                                         |
-| `GUNICORN_WORKERS`          | `(CPUs × 2) + 1`           | `gunicorn.conf.py` | Number of worker processes                                  |
-| `GUNICORN_WORKER_CLASS`     | `gthread`                  | `gunicorn.conf.py` | Worker type                                                 |
-| `GUNICORN_THREADS`          | `4`                        | `gunicorn.conf.py` | Threads per worker                                          |
-| `GUNICORN_TIMEOUT`          | `120`                      | `gunicorn.conf.py` | Worker timeout (seconds)                                    |
-| `GUNICORN_GRACEFUL_TIMEOUT` | `30`                       | `gunicorn.conf.py` | Graceful shutdown timeout                                   |
-| `GUNICORN_ACCESS_LOG`       | `-` (stdout)               | `gunicorn.conf.py` | Access log destination                                      |
-| `GUNICORN_ERROR_LOG`        | `-` (stderr)               | `gunicorn.conf.py` | Error log destination                                       |
-| `GUNICORN_LOG_LEVEL`        | `info`                     | `gunicorn.conf.py` | Log verbosity                                               |
+| Variable                    | Default                                      | Used In            | Description                                                 |
+| --------------------------- | -------------------------------------------- | ------------------ | ----------------------------------------------------------- |
+| `FLASK_ENV`                 | `development`                                | `run.py`           | Config selection (dev/production)                           |
+| `SECRET_KEY`                | `dev-secret-key-...`                         | `config.py`        | Flask session secret key                                    |
+| `MYSQL_USER`                | `root`                                       | `config.py`        | MySQL username                                              |
+| `MYSQL_PASSWORD`            | (empty)                                      | `config.py`        | MySQL password                                              |
+| `MYSQL_HOST`                | `localhost`                                  | `config.py`        | MySQL host                                                  |
+| `MYSQL_PORT`                | `3306`                                       | `config.py`        | MySQL port                                                  |
+| `MYSQL_DB`                  | `patient_db`                                 | `config.py`        | MySQL database name                                         |
+| `DATA_DIR`                  | `<project_root>/data`                        | `config.py`        | Root directory for VCF, raw variant uploads, and data files |
+| `LOCAL_AI_DIR`              | `DATA_DIR/local_ai`                          | `config.py`        | Root directory for local LLM binaries and model weights     |
+| `LOCAL_AI_BIN_DIR`          | `LOCAL_AI_DIR/bin`                           | `config.py`        | Directory for llama.cpp binaries or wrappers                |
+| `LOCAL_AI_MODELS_DIR`       | `LOCAL_AI_DIR/models`                        | `config.py`        | Directory for GGUF model files                              |
+| `LOCAL_LLM_BASE_URL`        | `http://127.0.0.1:8080/v1/chat/completions`  | `config.py`        | Loopback OpenAI-compatible chat endpoint                    |
+| `LOCAL_LLM_MODEL_FILE`      | `LOCAL_AI_MODELS_DIR/Qwen3.5-4B-Q4_K_M.gguf` | `config.py`        | Preferred GGUF model file                                   |
+| `LOCAL_LLM_MODEL`           | `qwen3.5-4b-instruct`                        | `config.py`        | Default model name sent to the local server                 |
+| `LOCAL_LLM_TIMEOUT`         | `120`                                        | `config.py`        | Upstream request timeout in seconds                         |
+| `RAG_ENABLED`               | `1`                                          | `config.py`        | Enables local corpus retrieval for assistant prompts        |
+| `RAG_CORPUS_PATH`           | `DATA_DIR/rag/corpus/corpus.jsonl`           | `config.py`        | On-disk chunked corpus used for retrieval                   |
+| `RAG_MAX_CONTEXT_CHUNKS`    | `4`                                          | `config.py`        | Maximum retrieved chunks injected into each prompt          |
+| `RAG_MAX_CONTEXT_CHARS`     | `6000`                                       | `config.py`        | Maximum total RAG context characters injected into prompts  |
+| `RUN_LOCAL_LLM`             | `1`                                          | `run.sh`           | Starts the local LLM server alongside the app               |
+| `VARIANT_UPLOAD_DIR`        | `DATA_DIR/variant_uploads`                   | `config.py`        | Raw singleton/trio upload storage path (derived)            |
+| `MAX_UPLOAD_MB`             | `5000`                                       | `config.py`        | Maximum upload size in megabytes                            |
+| `CORS_ORIGINS`              | (none)                                       | `app.py`           | Comma-separated allowed origins                             |
+| `GUNICORN_BIND`             | `0.0.0.0:8000`                               | `gunicorn.conf.py` | Server bind address                                         |
+| `GUNICORN_WORKERS`          | `(CPUs × 2) + 1`                             | `gunicorn.conf.py` | Number of worker processes                                  |
+| `GUNICORN_WORKER_CLASS`     | `gthread`                                    | `gunicorn.conf.py` | Worker type                                                 |
+| `GUNICORN_THREADS`          | `4`                                          | `gunicorn.conf.py` | Threads per worker                                          |
+| `GUNICORN_TIMEOUT`          | `120`                                        | `gunicorn.conf.py` | Worker timeout (seconds)                                    |
+| `GUNICORN_GRACEFUL_TIMEOUT` | `30`                                         | `gunicorn.conf.py` | Graceful shutdown timeout                                   |
+| `GUNICORN_ACCESS_LOG`       | `-` (stdout)                                 | `gunicorn.conf.py` | Access log destination                                      |
+| `GUNICORN_ERROR_LOG`        | `-` (stderr)                                 | `gunicorn.conf.py` | Error log destination                                       |
+| `GUNICORN_LOG_LEVEL`        | `info`                                       | `gunicorn.conf.py` | Log verbosity                                               |
 
 ---
 
@@ -1251,12 +1417,13 @@ In production, the app is served by **Gunicorn** (a pre-fork WSGI server) which 
 
 ### Files
 
-| File                  | Purpose                                                          |
-| --------------------- | ---------------------------------------------------------------- |
-| `gunicorn.conf.py`    | Gunicorn configuration (workers, threads, timeouts, hooks)       |
-| `start_production.sh` | One-command script: loads .env, builds frontend, starts Gunicorn |
-| `.env.example`        | Template for environment variables                               |
-| `backend/config.py`   | `ProductionConfig` class (DEBUG=False, requires SECRET_KEY)      |
+| File                         | Purpose                                                       |
+| ---------------------------- | ------------------------------------------------------------- |
+| `gunicorn.conf.py`           | Gunicorn configuration (workers, threads, timeouts, hooks)    |
+| `run.sh`                     | One-command script: setup, development, or production startup |
+| `scripts/start_local_llm.py` | Local LLM launcher / mock server helper                       |
+| `.env.example`               | Template for environment variables                            |
+| `backend/config.py`          | `ProductionConfig` class (DEBUG=False, requires SECRET_KEY)   |
 
 ### Quick Start
 
@@ -1269,18 +1436,19 @@ cp .env.example .env
 python -c "import secrets; print(secrets.token_hex(32))"
 
 # 3. Start
-chmod +x start_production.sh
-./start_production.sh
+chmod +x run.sh
+bash run.sh production
 ```
 
-`start_production.sh` performs these steps:
+`run.sh production` performs these steps:
 
 1. Loads `.env` file if present.
 2. Activates the Python virtual environment (`venv/` or `.venv/`).
 3. Validates `SECRET_KEY` is set.
 4. Builds the frontend (`npm install && npm run build`).
 5. Installs Python dependencies.
-6. Starts Gunicorn with the production config.
+6. Starts the local LLM server on `127.0.0.1:8080` unless `RUN_LOCAL_LLM=0` is set.
+7. Starts Gunicorn with the production config.
 
 ### Gunicorn Configuration
 

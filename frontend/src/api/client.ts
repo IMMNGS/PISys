@@ -15,11 +15,91 @@ const BASE = "/api";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
+    credentials: "include",
     ...init,
     cache: "no-store" as RequestCache,
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
+}
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  full_name: string | null;
+  role: "admin" | "user";
+  is_active: boolean;
+  created_at: string | null;
+  last_login_at: string | null;
+}
+
+export interface AuthSessionResponse {
+  authenticated: boolean;
+  user: AuthUser | null;
+}
+
+export interface AuditLogItem {
+  id: number;
+  user_id: number | null;
+  username: string;
+  action: string;
+  target: string;
+  method: string;
+  path: string;
+  status_code: number;
+  remote_addr: string | null;
+  user_agent: string | null;
+  created_at: string | null;
+}
+
+export function fetchSession(): Promise<AuthSessionResponse> {
+  return json(`${BASE}/auth/me`);
+}
+
+export function login(username: string, password: string): Promise<AuthSessionResponse> {
+  return json(`${BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function logout(): Promise<{ message: string }> {
+  return json(`${BASE}/auth/logout`, { method: "POST" });
+}
+
+export function fetchAuditLogs(params: {
+  limit?: number;
+  offset?: number;
+  username?: string;
+  action?: string;
+  target?: string;
+} = {}): Promise<{ items: AuditLogItem[]; total: number }> {
+  const search = new URLSearchParams();
+  if (params.limit != null) search.set("limit", String(params.limit));
+  if (params.offset != null) search.set("offset", String(params.offset));
+  if (params.username) search.set("username", params.username);
+  if (params.action) search.set("action", params.action);
+  if (params.target) search.set("target", params.target);
+  const suffix = search.toString() ? `?${search}` : "";
+  return json(`${BASE}/admin/audit-logs${suffix}`);
+}
+
+export function fetchUsers(): Promise<{ items: AuthUser[] }> {
+  return json(`${BASE}/admin/users`);
+}
+
+export function createUser(payload: {
+  username: string;
+  password: string;
+  role?: "admin" | "user";
+  full_name?: string;
+}): Promise<{ message: string; user: AuthUser }> {
+  return json(`${BASE}/admin/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 // ── HPO Terms ────────────────────────────────────────────────────────────
@@ -271,8 +351,22 @@ export interface CountByKeyword {
   count: number;
 }
 
+export interface CountByLabel {
+  label: string;
+  count: number;
+}
+
 export interface InsightSummaryResponse {
   counts: InsightCountSummary;
+  demographic_distribution: {
+    sex: CountByLabel[];
+    age: CountByLabel[];
+    ethnicity: CountByLabel[];
+    test_type: CountByLabel[];
+  };
+  vcf_distribution: {
+    file_size: CountByLabel[];
+  };
   chromosome_distribution: CountByChromosome[];
   top_variants: CountByVariant[];
   top_genes: CountByGene[];
@@ -285,6 +379,11 @@ export interface ExplainResponse {
   explanation: string;
   source: string;
   medical_disclaimer?: string;
+  citations?: Array<{
+    type: string;
+    label: string;
+    fields: Record<string, unknown>;
+  }>;
   matched?: {
     hpo_id: string;
     term_name: string;
@@ -301,11 +400,13 @@ export function fetchInsightSummary(): Promise<InsightSummaryResponse> {
 export async function explainEntity(
   kind: "hpo" | "variant" | "text",
   query: string,
+  includeCitations = true,
 ): Promise<ExplainResponse> {
   const res = await fetch(`${BASE}/insights/explain`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, query }),
+    body: JSON.stringify({ kind, query, include_citations: includeCitations }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -322,9 +423,16 @@ export async function sendLocalLlmChat(params: {
   temperature?: number;
   top_p?: number;
   max_tokens?: number;
+  citations?: Array<{
+    type: string;
+    label: string;
+    fields: Record<string, unknown>;
+  }>;
+  retrieved_context?: string;
 }): Promise<LocalLlmChatResponse> {
   const res = await fetch(`${BASE}/local-llm/chat`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
@@ -337,7 +445,14 @@ export async function sendLocalLlmChat(params: {
     );
   }
   const data = await res.json();
-  return { model: data.model, reply: data.reply };
+  return {
+    model: data.model,
+    reply: data.reply,
+    cached: data.cached,
+    raw: data.raw,
+    citations: data.citations,
+    retrieved_context: data.retrieved_context,
+  };
 }
 
 export function fetchLocalLlmModels(): Promise<LocalLlmModelsResponse> {
@@ -357,6 +472,7 @@ export async function createPatient(
 ): Promise<PatientInfo> {
   const res = await fetch(`${BASE}/patients`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -403,6 +519,7 @@ export function extractSelectedPatients(
 export async function downloadCommonVariantsVcf(ids: number[]): Promise<void> {
   const res = await fetch(`${BASE}/patients/extract/common_variants_vcf`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ patient_ids: ids }),
   });
@@ -509,6 +626,7 @@ export async function uploadVcfFile(
   form.append("file", file);
   const res = await fetch(`${BASE}/patients/${patientId}/vcf`, {
     method: "POST",
+    credentials: "include",
     body: form,
   });
   if (!res.ok) {
@@ -534,6 +652,7 @@ export async function uploadSingletonXlsx(
   form.append("file", file);
   const res = await fetch(`${BASE}/patients/${patientId}/upload/singleton`, {
     method: "POST",
+    credentials: "include",
     body: form,
   });
   if (!res.ok) {
@@ -553,6 +672,7 @@ export async function uploadTrioXlsx(
   form.append("file", file);
   const res = await fetch(`${BASE}/patients/${patientId}/upload/trio`, {
     method: "POST",
+    credentials: "include",
     body: form,
   });
   if (!res.ok) {
@@ -582,6 +702,7 @@ export async function fetchReportPreview(
 ): Promise<ReportPreview> {
   const res = await fetch(`${BASE}/report/preview`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lab_number: labNumber, test_type: testType }),
   });
@@ -607,6 +728,7 @@ export async function downloadReport(params: {
 }): Promise<void> {
   const res = await fetch(`${BASE}/report/generate`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
@@ -637,6 +759,7 @@ export async function downloadSingleGeneReport(
 ): Promise<void> {
   const res = await fetch(`${BASE}/report/generate-single-gene`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lab_number: labNumber }),
   });
@@ -671,6 +794,7 @@ export async function uploadPatientsXlsx(
   form.append("file", file);
   const res = await fetch(`${BASE}/patients/upload`, {
     method: "POST",
+    credentials: "include",
     body: form,
   });
   if (!res.ok) {

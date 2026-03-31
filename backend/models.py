@@ -337,3 +337,92 @@ class VariantUpload(db.Model):
             "file_size": self.file_size,
             "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
         }
+
+
+class LocalLlmCache(db.Model):
+    """Caches local LLM responses in the existing MySQL database."""
+    __tablename__ = "local_llm_cache"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    cache_key = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    provider = db.Column(db.String(50), nullable=False)
+    model = db.Column(db.String(255), nullable=False)
+    payload_json = db.Column(db.Text, nullable=False)
+    response_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "cache_key": self.cache_key,
+            "provider": self.provider,
+            "model": self.model,
+            "payload_json": self.payload_json,
+            "response_json": self.response_json,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+        }
+
+
+class AuthUser(db.Model):
+    """Application user account used for login and role checks."""
+    __tablename__ = "auth_users"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    full_name = db.Column(db.String(200), nullable=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default="user", index=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "full_name": self.full_name,
+            "role": self.role,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
+        }
+
+    @property
+    def is_admin(self):
+        return (self.role or "").lower() == "admin"
+
+
+class AccessLog(db.Model):
+    """Audit record of authenticated API access."""
+    __tablename__ = "access_logs"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True, index=True)
+    username = db.Column(db.String(80), nullable=False, index=True)
+    action = db.Column(db.String(40), nullable=False, index=True)
+    target = db.Column(db.String(500), nullable=False, index=True)
+    method = db.Column(db.String(10), nullable=False)
+    path = db.Column(db.String(500), nullable=False)
+    status_code = db.Column(db.Integer, nullable=False)
+    remote_addr = db.Column(db.String(120), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = db.relationship("AuthUser", backref=db.backref("access_log_entries", lazy="dynamic"))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "username": self.username,
+            "action": self.action,
+            "target": self.target,
+            "method": self.method,
+            "path": self.path,
+            "status_code": self.status_code,
+            "remote_addr": self.remote_addr,
+            "user_agent": self.user_agent,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

@@ -140,6 +140,7 @@ def _start_llama_cpp(host: str, port: int, model_file: Path, model_name: str) ->
         host,
         "--port",
         str(port),
+        "--no-webui",
         "--reasoning",
         "off",
         "-m",

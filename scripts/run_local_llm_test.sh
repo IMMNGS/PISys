@@ -4,6 +4,24 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+RUN_LOCAL_LLM=1
+for arg in "$@"; do
+  case "$arg" in
+    --no-ai|-n)
+      RUN_LOCAL_LLM=0
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--no-ai]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg"
+      echo "Usage: $0 [--no-ai]"
+      exit 2
+      ;;
+  esac
+done
+
 if [ ! -d "$ROOT_DIR/data/local_ai" ]; then
   mkdir -p "$ROOT_DIR/data/local_ai/bin" "$ROOT_DIR/data/local_ai/models"
 fi
@@ -28,12 +46,16 @@ export LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-qwen3.5-4b-instruct}"
 python run.py &
 BACKEND_PID=$!
 
-python scripts/start_local_llm.py --mode auto &
-LLM_PID=$!
+if [ "$RUN_LOCAL_LLM" = "1" ]; then
+  python scripts/start_local_llm.py --mode auto &
+  LLM_PID=$!
+fi
 
 cleanup() {
   kill "$BACKEND_PID" >/dev/null 2>&1 || true
-  kill "$LLM_PID" >/dev/null 2>&1 || true
+  if [ -n "${LLM_PID:-}" ]; then
+    kill "$LLM_PID" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 

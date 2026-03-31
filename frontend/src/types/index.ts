@@ -120,6 +120,14 @@ export interface LocalLlmMessage {
 export interface LocalLlmChatResponse {
   model: string;
   reply: string;
+  cached?: boolean;
+  raw?: unknown;
+  citations?: Array<{
+    type: string;
+    label: string;
+    fields: Record<string, unknown>;
+  }>;
+  retrieved_context?: string;
 }
 
 export interface LocalLlmModelOption {
@@ -130,6 +138,7 @@ export interface LocalLlmModelOption {
 }
 
 export interface LocalLlmModelsResponse {
+  provider?: string;
   models: LocalLlmModelOption[];
   selected: string;
 }

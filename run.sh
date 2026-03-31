@@ -26,19 +26,34 @@ if [[ -f .env ]]; then
   set +a
 fi
 
-MODE="${1:-production}"
-case "$MODE" in
-  setup|development|production) ;;
-  -h|--help) echo "Usage: $0 [setup|development|production]"; exit 0 ;;
-  *) echo "Unknown mode: $MODE"; echo "Usage: $0 [setup|development|production]"; exit 2 ;;
-esac
+MODE="production"
+RUN_LOCAL_LLM="${RUN_LOCAL_LLM:-1}"
+
+for arg in "$@"; do
+  case "$arg" in
+    setup|development|production)
+      MODE="$arg"
+      ;;
+    --no-ai|-n)
+      RUN_LOCAL_LLM=0
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--no-ai] [setup|development|production]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg"
+      echo "Usage: $0 [--no-ai] [setup|development|production]"
+      exit 2
+      ;;
+  esac
+done
 
 MYSQL_USER="${MYSQL_USER:-root}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
 MYSQL_HOST="${MYSQL_HOST:-localhost}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
 MYSQL_DB="${MYSQL_DB:-hpo_database}"
-RUN_LOCAL_LLM="${RUN_LOCAL_LLM:-1}"
 LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8080}"
 LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL:-http://127.0.0.1:${LOCAL_LLM_PORT}/v1/chat/completions}"
 LOCAL_LLM_MODEL_FILE="${LOCAL_LLM_MODEL_FILE:-$PROJECT_DIR/data/local_ai/models/Qwen3.5-4B-Q4_K_M.gguf}"
@@ -152,6 +167,9 @@ if [ "$first_time_setup" = true ]; then
   # Create data directories
   info "Creating data directories"
   mkdir -p "$PROJECT_DIR/data/vcf"
+  mkdir -p "$PROJECT_DIR/data/rag/raw"
+  mkdir -p "$PROJECT_DIR/data/rag/corpus"
+  mkdir -p "$PROJECT_DIR/data/rag/eval"
   mkdir -p "$PROJECT_DIR/data/local_ai/bin"
   mkdir -p "$PROJECT_DIR/data/local_ai/models"
   if [ ! -f "$PROJECT_DIR/data/disease_terms.csv" ]; then
@@ -163,7 +181,7 @@ term_name,notes
 CSV
     ok "Created data/disease_terms.csv template"
   fi
-  ok "data/, data/vcf/, and data/local_ai/ ready"
+  ok "data/, data/vcf/, data/rag/, and data/local_ai/ ready"
 
   # MySQL DB creation if CLI available
   if command -v mysql &>/dev/null; then

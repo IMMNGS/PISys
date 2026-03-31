@@ -3,6 +3,18 @@ import {
   fetchInsightSummary,
   type InsightSummaryResponse,
 } from "../api/client";
+import DistributionChart from "../components/DistributionChart";
+
+function MetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="metric-card">
+      <div className="metric-card-label">{label}</div>
+      <div className="metric-card-value">
+        {new Intl.NumberFormat().format(value)}
+      </div>
+    </div>
+  );
+}
 
 export default function DescriptiveStats() {
   const [data, setData] = useState<InsightSummaryResponse | null>(null);
@@ -33,8 +45,8 @@ export default function DescriptiveStats() {
     <>
       <h2>Descriptive Statistics</h2>
       <p className="text-muted mb-2">
-        Local summary of current dataset: variant frequencies, chromosome
-        distribution, top genes, and keyword trends from variant annotations.
+        Local summary of current dataset with chart-based views for demographic
+        mix, VCF file metadata, and variant-level patterns.
       </p>
 
       {loading && <p>Loading statistics…</p>}
@@ -42,129 +54,93 @@ export default function DescriptiveStats() {
 
       {data && (
         <>
-          {/* TODO(charts): Replace/augment tables with local chart components
-              (bar charts for chromosomes/genes/keywords). */}
-          <div className="card mb-2">
-            <div className="card-header primary">Dataset Summary</div>
-            <div className="card-body">
-              <div className="row mb-1">
-                <div className="col-2">
-                  <strong>Patients:</strong> {data.counts.patients}
-                </div>
-                <div className="col-2">
-                  <strong>Total variants:</strong> {data.counts.total_variants}
-                </div>
-              </div>
-              <div className="row mb-1">
-                <div className="col-2">
-                  <strong>Singleton variants:</strong>{" "}
-                  {data.counts.singleton_variants}
-                </div>
-                <div className="col-2">
-                  <strong>Trio variants:</strong> {data.counts.trio_variants}
-                </div>
-              </div>
-              <div className="row">
-                <div className="col-2">
-                  <strong>VCF files:</strong> {data.counts.vcf_files}
-                </div>
-              </div>
-            </div>
+          <div className="metric-grid mb-2">
+            <MetricCard label="Patients" value={data.counts.patients} />
+            <MetricCard
+              label="Total variants"
+              value={data.counts.total_variants}
+            />
+            <MetricCard
+              label="Singleton variants"
+              value={data.counts.singleton_variants}
+            />
+            <MetricCard
+              label="Trio variants"
+              value={data.counts.trio_variants}
+            />
+            <MetricCard label="VCF files" value={data.counts.vcf_files} />
           </div>
 
-          <div className="card mb-2">
-            <div className="card-header primary">Chromosome Distribution</div>
-            <div className="card-body table-wrap table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Chromosome</th>
-                    <th>Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.chromosome_distribution.map((row) => (
-                    <tr key={row.chromosome}>
-                      <td>{row.chromosome}</td>
-                      <td>{row.count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="analytics-grid mb-2">
+            <DistributionChart
+              title="Sex distribution"
+              description="Patients grouped by recorded sex in the local database."
+              items={data.demographic_distribution.sex}
+              maxItems={6}
+            />
+            <DistributionChart
+              title="Age bands"
+              description="Age values normalized to years and grouped into broad bands."
+              items={data.demographic_distribution.age}
+              maxItems={8}
+            />
+            <DistributionChart
+              title="Type of test"
+              description="Recorded testing requests across the current patient set."
+              items={data.demographic_distribution.test_type}
+              maxItems={8}
+            />
+            <DistributionChart
+              title="Ethnicity"
+              description="Stored ethnicity values, grouped by the most common labels."
+              items={data.demographic_distribution.ethnicity}
+              maxItems={8}
+            />
           </div>
 
-          <div className="row mb-2">
-            <div className="col-2">
-              <div className="card">
-                <div className="card-header primary">Top Genes</div>
-                <div className="card-body table-wrap table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Gene</th>
-                        <th>Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.top_genes.slice(0, 15).map((row) => (
-                        <tr key={row.gene}>
-                          <td>{row.gene}</td>
-                          <td>{row.count}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-2">
-              <div className="card">
-                <div className="card-header primary">Top Keywords</div>
-                <div className="card-body table-wrap table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Keyword</th>
-                        <th>Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.top_keywords.slice(0, 15).map((row) => (
-                        <tr key={row.keyword}>
-                          <td>{row.keyword}</td>
-                          <td>{row.count}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header primary">Top Variant Entries</div>
-            <div className="card-body table-wrap table-scroll">
-              {/* TODO(export): Add CSV/JSON export button for current summary payload. */}
-              <table>
-                <thead>
-                  <tr>
-                    <th>Variant</th>
-                    <th>Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.top_variants.slice(0, 20).map((row) => (
-                    <tr key={row.variant}>
-                      <td>{row.variant}</td>
-                      <td>{row.count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="analytics-grid analytics-grid--wide mb-2">
+            <DistributionChart
+              title="VCF file sizes"
+              description="Uploaded VCF metadata grouped into size buckets."
+              items={data.vcf_distribution.file_size}
+              maxItems={6}
+            />
+            <DistributionChart
+              title="Chromosome distribution"
+              description="Variant counts summarized by chromosome from singleton and trio findings."
+              items={data.chromosome_distribution.map((row) => ({
+                label: row.chromosome,
+                count: row.count,
+              }))}
+              maxItems={24}
+            />
+            <DistributionChart
+              title="Top genes"
+              description="Most frequently referenced genes in the current dataset."
+              items={data.top_genes.map((row) => ({
+                label: row.gene,
+                count: row.count,
+              }))}
+              maxItems={15}
+            />
+            <DistributionChart
+              title="Top keywords"
+              description="Common terms extracted from titles, classifications, and review comments."
+              items={data.top_keywords.map((row) => ({
+                label: row.keyword,
+                count: row.count,
+              }))}
+              maxItems={15}
+            />
+            <DistributionChart
+              title="Top variant entries"
+              description="Repeated chr:pos and ref/alt combinations in the local variant set."
+              items={data.top_variants.map((row) => ({
+                label: row.variant,
+                count: row.count,
+              }))}
+              maxItems={12}
+            />
           </div>
         </>
       )}
