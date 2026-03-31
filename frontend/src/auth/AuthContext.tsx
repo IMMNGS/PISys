@@ -13,7 +13,7 @@ import {
 import { AuthContext, type AuthContextValue } from "./authContext";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthContextValue["user"]>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const session = await loginRequest(username, password);
         const nextUser = session.user;
         setUser(nextUser);
-        return nextUser as AuthUser;
+        return nextUser;
       },
       logout: async () => {
         await logoutRequest();
