@@ -70,6 +70,56 @@ function Test-HttpReady([string]$Url, [int]$Attempts = 60, [int]$DelaySeconds = 
     return $false
 }
 
+function Ensure-LlamaCpp {
+    $LocalAiSrcDir = Join-Path $ProjectDir 'data\local_ai\src'
+    $LlamaCppDir = Join-Path $LocalAiSrcDir 'llama.cpp'
+    $BuildDir = Join-Path $LlamaCppDir 'build'
+
+    Ensure-Directory $LocalAiSrcDir
+
+    $ServerCandidates = @(
+        (Join-Path $BuildDir 'bin\llama-server'),
+        (Join-Path $BuildDir 'bin\server')
+    )
+    foreach ($candidate in $ServerCandidates) {
+        if (Test-Path $candidate) {
+            Write-Ok "llama.cpp already built: $candidate"
+            return
+        }
+    }
+
+    if (-not (Test-Path $LlamaCppDir)) {
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Fail 'Git is required to clone llama.cpp automatically.'
+        }
+        Write-Info "Downloading llama.cpp into $LlamaCppDir"
+        & git clone --depth 1 https://github.com/ggerganov/llama.cpp.git $LlamaCppDir
+    } else {
+        Write-Info "Using existing llama.cpp checkout at $LlamaCppDir"
+    }
+
+    $ServerCandidates = @(
+        (Join-Path $BuildDir 'bin\llama-server'),
+        (Join-Path $BuildDir 'bin\server')
+    )
+    foreach ($candidate in $ServerCandidates) {
+        if (Test-Path $candidate) {
+            Write-Ok "llama.cpp already built: $candidate"
+            return
+        }
+    }
+
+    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+        Fail 'CMake is required to build llama.cpp automatically.'
+    }
+
+    Write-Info 'Configuring llama.cpp build'
+    & cmake -S $LlamaCppDir -B $BuildDir -DLLAMA_BUILD_SERVER=ON
+    Write-Info 'Building llama.cpp server'
+    & cmake --build $BuildDir
+    Write-Ok "llama.cpp built under $BuildDir"
+}
+
 $PythonCmd = Get-PythonCommand
 if (-not $PythonCmd) {
     Fail 'Python 3 was not found on PATH. Install Python 3.9+ and try again.'
@@ -289,6 +339,7 @@ with app.app_context():
     Write-Ok 'HPO terms check completed'
 
     if (-not $NoAi) {
+        Ensure-LlamaCpp
         Write-Info 'Starting local LLM server'
         Start-Process -FilePath $VenvPy -ArgumentList @('scripts/start_local_llm.py', '--mode', 'auto', '--host', '127.0.0.1', '--port', '8080') -PassThru | Out-Null
         if (-not (Test-HttpReady 'http://127.0.0.1:8080/health')) {
