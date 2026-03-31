@@ -16,8 +16,6 @@ type StoredAssistantChat = {
   messages: LocalLlmMessage[];
 };
 
-const INITIAL_ASSISTANT_MESSAGE = "Ask anything about the local model.";
-
 type ChatSession = StoredAssistantChat & {
   id: string;
   summary: string;
@@ -192,7 +190,6 @@ export default function Assistant() {
 
   const systemPrompt = currentSession.systemPrompt;
   const model = currentSession.model;
-  const modelLabel = currentSession.modelLabel;
   const temperature = currentSession.temperature;
   const maxTokens = currentSession.maxTokens;
   const messages = currentSession.messages;
@@ -207,6 +204,17 @@ export default function Assistant() {
   );
 
   const historyItems = useMemo(() => sessions, [sessions]);
+
+  const updateCurrentSession = useCallback(
+    (updater: (session: ChatSession) => ChatSession) => {
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === currentSessionId ? updater(session) : session,
+        ),
+      );
+    },
+    [currentSessionId],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -238,7 +246,7 @@ export default function Assistant() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [updateCurrentSession]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -250,16 +258,6 @@ export default function Assistant() {
       } satisfies StoredAssistantState),
     );
   }, [currentSessionId, sessions]);
-
-  const updateCurrentSession = (
-    updater: (session: ChatSession) => ChatSession,
-  ) => {
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === currentSessionId ? updater(session) : session,
-      ),
-    );
-  };
 
   const loadSession = (session: ChatSession) => {
     setCurrentSessionId(session.id);

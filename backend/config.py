@@ -9,13 +9,13 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
 
     # MySQL connection — update these for your environment
-    MYSQL_USER = os.environ.get("MYSQL_USER", "root")
+    MYSQL_USER = os.environ.get("MYSQL_USER", "pisys_user")
     MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "")
     MYSQL_HOST = os.environ.get("MYSQL_HOST", "localhost")
-    MYSQL_PORT = os.environ.get("MYSQL_PORT", "3306")
+    MYSQL_PORT = os.environ.get("MYSQL_PORT", "3308")
 
     # Single database for everything
-    MYSQL_DB = os.environ.get("MYSQL_DB", "patient_db")
+    MYSQL_DB = os.environ.get("MYSQL_DB", "pisys_db")
 
     # Local authentication bootstrap values.
     ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")

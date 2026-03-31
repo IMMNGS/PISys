@@ -49,21 +49,27 @@ for arg in "$@"; do
   esac
 done
 
-MYSQL_USER="${MYSQL_USER:-root}"
+MYSQL_USER="${MYSQL_USER:-pisys_user}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
 MYSQL_HOST="${MYSQL_HOST:-localhost}"
-MYSQL_PORT="${MYSQL_PORT:-3306}"
-MYSQL_DB="${MYSQL_DB:-hpo_database}"
+MYSQL_PORT="${MYSQL_PORT:-3308}"
+MYSQL_DB="${MYSQL_DB:-pisys_db}"
 LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8080}"
 LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL:-http://127.0.0.1:${LOCAL_LLM_PORT}/v1/chat/completions}"
 LOCAL_LLM_MODEL_FILE="${LOCAL_LLM_MODEL_FILE:-$PROJECT_DIR/data/local_ai/models/Qwen3.5-4B-Q4_K_M.gguf}"
 LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-qwen3.5-4b-instruct}"
 
+export MYSQL_USER MYSQL_PASSWORD MYSQL_HOST MYSQL_PORT MYSQL_DB
 export LOCAL_LLM_PORT LOCAL_LLM_BASE_URL LOCAL_LLM_MODEL_FILE LOCAL_LLM_MODEL
 
 GUNICORN_PID=""
 BACKEND_PID=""
 LLM_PID=""
+MYSQL_SERVER_PID=""
+MYSQL_DATA_DIR="$PROJECT_DIR/data/local_ai/mysql"
+MYSQL_SOCKET="$MYSQL_DATA_DIR/mysql.sock"
+MYSQL_PID_FILE="$MYSQL_DATA_DIR/mysqld.pid"
+MYSQL_LOG_FILE="$MYSQL_DATA_DIR/mysqld.log"
 
 cleanup() {
   if [[ -n "${GUNICORN_PID:-}" ]]; then
@@ -75,6 +81,125 @@ cleanup() {
   if [[ -n "${LLM_PID:-}" ]]; then
     kill "$LLM_PID" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${MYSQL_SERVER_PID:-}" ]]; then
+    kill "$MYSQL_SERVER_PID" >/dev/null 2>&1 || true
+  fi
+}
+
+mysql_is_reachable() {
+  local host="$1"
+  local port="$2"
+
+  MYSQL_PWD="$MYSQL_PASSWORD" mysql --protocol=tcp -h "$host" -P "$port" -u "$MYSQL_USER" -e "SELECT 1" >/dev/null 2>&1
+}
+
+mysql_root_is_reachable() {
+  local host="$1"
+  local port="$2"
+
+  if [[ -S "$MYSQL_SOCKET" && ("$host" == "localhost" || "$host" == "127.0.0.1") ]]; then
+    MYSQL_PWD="" mysql --protocol=SOCKET --socket="$MYSQL_SOCKET" -u root -e "SELECT 1" >/dev/null 2>&1
+  else
+    MYSQL_PWD="" mysql --protocol=tcp -h "$host" -P "$port" -u root -e "SELECT 1" >/dev/null 2>&1
+  fi
+}
+
+bootstrap_local_mysql() {
+  if mysql_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+    return 0
+  fi
+
+  if command -v mysqld &>/dev/null; then
+    mkdir -p "$MYSQL_DATA_DIR"
+
+    if [[ ! -d "$MYSQL_DATA_DIR/mysql" ]]; then
+      info "Initializing a local MySQL data directory at $MYSQL_DATA_DIR"
+      if ! mysqld --initialize-insecure --datadir="$MYSQL_DATA_DIR" >/dev/null 2>&1; then
+        warn "Could not initialize a local MySQL data directory automatically"
+      fi
+    fi
+
+    if [[ ! -f "$MYSQL_PID_FILE" ]] || ! kill -0 "$(cat "$MYSQL_PID_FILE" 2>/dev/null)" >/dev/null 2>&1; then
+      info "Starting a local MySQL server on 127.0.0.1:${MYSQL_PORT}"
+      mysqld \
+        --datadir="$MYSQL_DATA_DIR" \
+        --bind-address=127.0.0.1 \
+        --port="$MYSQL_PORT" \
+        --socket="$MYSQL_SOCKET" \
+        --pid-file="$MYSQL_PID_FILE" \
+        --log-error="$MYSQL_LOG_FILE" \
+        >/dev/null 2>&1 &
+      MYSQL_SERVER_PID=$!
+    fi
+
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+      if mysql_is_reachable "$MYSQL_HOST" "$MYSQL_PORT" || mysql_root_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+        break
+      fi
+      sleep 2
+    done
+  fi
+
+  if ! mysql_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+    if command -v brew &>/dev/null; then
+      for formula in mysql mysql@8.4 mysql@8.0 mariadb mariadb@10.11; do
+        if brew list --formula "$formula" >/dev/null 2>&1; then
+          info "Starting MySQL service via Homebrew: $formula"
+          brew services start "$formula" >/dev/null 2>&1 || true
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            if mysql_is_reachable "$MYSQL_HOST" "$MYSQL_PORT" || mysql_root_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+              break
+            fi
+            sleep 2
+          done
+          if mysql_is_reachable "$MYSQL_HOST" "$MYSQL_PORT" || mysql_root_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+            break
+          fi
+        fi
+      done
+    fi
+  fi
+
+  if mysql_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+    return 0
+  fi
+
+  if mysql_is_reachable "$MYSQL_HOST" 3306; then
+    MYSQL_PORT=3306
+    export MYSQL_PORT
+    warn "Detected a running MySQL server on port 3306; using that port for this session"
+    return 0
+  fi
+
+  if mysql_root_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_mysql_bootstrap() {
+  local bootstrap_user="root"
+  local user_password_sql="${MYSQL_PASSWORD//\'/\'\'}"
+
+  if ! command -v mysql &>/dev/null; then
+    warn "mysql CLI not found — skipping MySQL database/user bootstrap"
+    return 0
+  fi
+
+  if ! mysql_root_is_reachable "$MYSQL_HOST" "$MYSQL_PORT" && ! mysql_is_reachable "$MYSQL_HOST" "$MYSQL_PORT"; then
+    return 1
+  fi
+
+  info "Ensuring MySQL database '${MYSQL_DB}' and user '${MYSQL_USER}' exist"
+
+  if [[ -S "$MYSQL_SOCKET" && ("$MYSQL_HOST" == "localhost" || "$MYSQL_HOST" == "127.0.0.1") ]]; then
+    MYSQL_PWD="" mysql --protocol=SOCKET --socket="$MYSQL_SOCKET" -u "$bootstrap_user" -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS '$MYSQL_USER'@'localhost' IDENTIFIED BY '$user_password_sql'; CREATE USER IF NOT EXISTS '$MYSQL_USER'@'127.0.0.1' IDENTIFIED BY '$user_password_sql'; ALTER USER '$MYSQL_USER'@'localhost' IDENTIFIED BY '$user_password_sql'; ALTER USER '$MYSQL_USER'@'127.0.0.1' IDENTIFIED BY '$user_password_sql'; GRANT ALL PRIVILEGES ON \`$MYSQL_DB\`.* TO '$MYSQL_USER'@'localhost'; GRANT ALL PRIVILEGES ON \`$MYSQL_DB\`.* TO '$MYSQL_USER'@'127.0.0.1'; FLUSH PRIVILEGES;" >/dev/null 2>&1 || return 1
+  else
+    MYSQL_PWD="" mysql --protocol=tcp -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$bootstrap_user" -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS '$MYSQL_USER'@'localhost' IDENTIFIED BY '$user_password_sql'; CREATE USER IF NOT EXISTS '$MYSQL_USER'@'127.0.0.1' IDENTIFIED BY '$user_password_sql'; ALTER USER '$MYSQL_USER'@'localhost' IDENTIFIED BY '$user_password_sql'; ALTER USER '$MYSQL_USER'@'127.0.0.1' IDENTIFIED BY '$user_password_sql'; GRANT ALL PRIVILEGES ON \`$MYSQL_DB\`.* TO '$MYSQL_USER'@'localhost'; GRANT ALL PRIVILEGES ON \`$MYSQL_DB\`.* TO '$MYSQL_USER'@'127.0.0.1'; FLUSH PRIVILEGES;" >/dev/null 2>&1 || return 1
+  fi
+
+  return 0
 }
 
 wait_for_http() {
@@ -178,6 +303,7 @@ if [ "$first_time_setup" = true ]; then
   mkdir -p "$PROJECT_DIR/data/rag/eval"
   mkdir -p "$PROJECT_DIR/data/local_ai/bin"
   mkdir -p "$PROJECT_DIR/data/local_ai/models"
+  mkdir -p "$MYSQL_DATA_DIR"
   if [ ! -f "$PROJECT_DIR/data/disease_terms.csv" ]; then
     cat > "$PROJECT_DIR/data/disease_terms.csv" <<'CSV'
 term_name,notes
@@ -208,6 +334,17 @@ CSV
   ok "Frontend installed and built"
 
   ok "First-time setup finished"
+fi
+
+# Ensure MySQL is available before any DB-backed startup steps run.
+if bootstrap_local_mysql; then
+  if ensure_mysql_bootstrap; then
+    ok "Local MySQL server is ready"
+  else
+    warn "MySQL is reachable, but automatic database/user bootstrap failed"
+  fi
+else
+  warn "No MySQL server could be started or detected; the app will not be able to connect until one is available"
 fi
 
 # Ensure venv is active for subsequent steps
@@ -314,20 +451,21 @@ if [ "$MODE" = "production" ]; then
   pip install -r requirements.txt
   ok "Python dependencies OK"
 
-  # One-time HPO load detection (best-effort using mysql CLI)
-  if command -v mysql &>/dev/null; then
-    HPO_COUNT=$(mysql -u "$MYSQL_USER" ${MYSQL_PASSWORD:+-p"$MYSQL_PASSWORD"} -h "$MYSQL_HOST" -P "$MYSQL_PORT" -N -s -e "SELECT COUNT(*) FROM ${MYSQL_DB}.hpo_terms" 2>/dev/null || echo "0")
-  else
-    HPO_COUNT=1
-  fi
-  if [[ "$HPO_COUNT" == "0" ]]; then
-    info "No HPO terms found — loading (one-time)"
-    python - <<'PY'
+# One-time HPO load detection using the app's own ORM connection.
+python - <<'PY'
 from backend.app import create_app
 from backend.models import db, HPOTerm
 from pyhpo import Ontology
+
 app = create_app()
+
 with app.app_context():
+    hpo_count = HPOTerm.query.count()
+    if hpo_count > 0:
+        print(f'HPO terms already present ({hpo_count}) — skipping load')
+        raise SystemExit(0)
+
+    print('No HPO terms found — loading (one-time)')
     ont = Ontology()
     added = 0
     for term in ont:
@@ -337,10 +475,7 @@ with app.app_context():
     db.session.commit()
     print(f'Loaded {added} HPO terms')
 PY
-    ok "HPO terms loaded"
-  else
-    ok "HPO terms already present — skipping load"
-  fi
+ok "HPO terms check completed"
 
   trap cleanup EXIT INT TERM
 

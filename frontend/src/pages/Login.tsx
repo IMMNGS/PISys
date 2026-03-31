@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -11,7 +11,9 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/";
+  const from =
+    (location.state as { from?: { pathname?: string } } | null)?.from
+      ?.pathname || "/";
 
   if (user) {
     return <Navigate to={from} replace />;
@@ -62,12 +64,17 @@ export default function Login() {
                 required
               />
             </label>
-            <button className="btn btn-primary" type="submit" disabled={loading}>
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={loading}
+            >
               {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
           <p className="text-muted auth-note">
-            Default local admin can be configured with ADMIN_USERNAME and ADMIN_PASSWORD.
+            Default local admin can be configured with ADMIN_USERNAME and
+            ADMIN_PASSWORD.
           </p>
         </div>
       </div>

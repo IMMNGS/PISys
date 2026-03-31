@@ -1378,11 +1378,11 @@ The entire `data/` directory can be relocated by setting the `DATA_DIR` environm
 | --------------------------- | -------------------------------------------- | ------------------ | ----------------------------------------------------------- |
 | `FLASK_ENV`                 | `development`                                | `run.py`           | Config selection (dev/production)                           |
 | `SECRET_KEY`                | `dev-secret-key-...`                         | `config.py`        | Flask session secret key                                    |
-| `MYSQL_USER`                | `root`                                       | `config.py`        | MySQL username                                              |
+| `MYSQL_USER`                | `pisys_user`                                 | `config.py`        | MySQL username                                              |
 | `MYSQL_PASSWORD`            | (empty)                                      | `config.py`        | MySQL password                                              |
 | `MYSQL_HOST`                | `localhost`                                  | `config.py`        | MySQL host                                                  |
-| `MYSQL_PORT`                | `3306`                                       | `config.py`        | MySQL port                                                  |
-| `MYSQL_DB`                  | `patient_db`                                 | `config.py`        | MySQL database name                                         |
+| `MYSQL_PORT`                | `3308`                                       | `config.py`        | MySQL port                                                  |
+| `MYSQL_DB`                  | `pisys_db`                                   | `config.py`        | MySQL database name                                         |
 | `DATA_DIR`                  | `<project_root>/data`                        | `config.py`        | Root directory for VCF, raw variant uploads, and data files |
 | `LOCAL_AI_DIR`              | `DATA_DIR/local_ai`                          | `config.py`        | Root directory for local LLM binaries and model weights     |
 | `LOCAL_AI_BIN_DIR`          | `LOCAL_AI_DIR/bin`                           | `config.py`        | Directory for llama.cpp binaries or wrappers                |

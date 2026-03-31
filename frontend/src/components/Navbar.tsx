@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 
 export default function Navbar() {
   const { user, isAdmin, logout } = useAuth();
@@ -44,7 +44,11 @@ export default function Navbar() {
           <span className="navbar-user-chip">
             {user?.full_name || user?.username || "Signed in"}
           </span>
-          <button className="btn btn-outline-light btn-sm" type="button" onClick={() => void logout()}>
+          <button
+            className="btn btn-outline-light btn-sm"
+            type="button"
+            onClick={() => void logout()}
+          >
             Logout
           </button>
         </div>

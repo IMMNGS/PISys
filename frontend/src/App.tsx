@@ -18,6 +18,7 @@ import DescriptiveStats from "./pages/DescriptiveStats";
 import Assistant from "./pages/Assistant";
 import Login from "./pages/Login";
 import AdminAudit from "./pages/AdminAudit";
+import { useAuth } from "./auth/useAuth";
 
 function AuthGate() {
   const { user, loading } = useAuth();

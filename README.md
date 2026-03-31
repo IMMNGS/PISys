@@ -178,11 +178,11 @@ CREATE DATABASE IF NOT EXISTS patient_db CHARACTER SET utf8mb4 COLLATE utf8mb4_u
 Set environment variables or edit `backend/config.py`:
 
 ```bash
-export MYSQL_USER=root
+export MYSQL_USER=pisys_user
 export MYSQL_PASSWORD=password
 export MYSQL_HOST=localhost
-export MYSQL_PORT=3306
-export MYSQL_DB=patient_db
+export MYSQL_PORT=3308
+export MYSQL_DB=pisys_db
 export ADMIN_USERNAME=admin
 export ADMIN_PASSWORD=change-me
 export ADMIN_FULL_NAME=Administrator
