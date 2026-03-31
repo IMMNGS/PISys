@@ -13,8 +13,8 @@ This file tracks the implementation plan for local analytics and local explanati
 - [x] Create frontend page: `frontend/src/pages/DescriptiveStats.tsx`
 - [x] Add route + navbar entry for descriptive statistics
 - [x] Add actual chart visualizations (demographic + VCF summaries now chart-based)
-- [ ] Add date-range and test-type filters for drill-down analytics
-- [ ] Add export (CSV/JSON) for stats results
+- [x] Add date-range and test-type filters for drill-down analytics
+- [x] Add export (CSV/JSON) for stats results
 
 ## 2) Local Explain Helper (Small-Model Ready)
 
@@ -58,6 +58,17 @@ This file tracks the implementation plan for local analytics and local explanati
 ## 5) Authentication
 
 - [ ] Add user login flow and session handling
+
+## 6) Backups and Restore
+
+- [ ] Define backup scope for MySQL, uploaded files, and config files
+- [ ] Add daily automated database backups with retention
+- [ ] Add file-system backups for `DATA_DIR` with retention
+- [ ] Add encrypted offsite backup copy
+- [ ] Add point-in-time recovery using MySQL binlogs
+- [ ] Add restore verification script for staging environment
+- [ ] Add periodic backup/restore test checklist
+- [ ] Document backup, restore, and retention procedures in README
 
 ## Notes
 

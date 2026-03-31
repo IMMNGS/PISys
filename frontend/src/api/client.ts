@@ -13,12 +13,38 @@ import type {
 
 const BASE = "/api";
 
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    credentials: "include",
+let csrfToken = "";
+
+export function setCsrfToken(token: string | null | undefined) {
+  csrfToken = token || "";
+}
+
+function needsCsrf(method?: string) {
+  const verb = (method || "GET").toUpperCase();
+  return !["GET", "HEAD", "OPTIONS"].includes(verb);
+}
+
+function withCsrf(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers || {});
+  if (needsCsrf(init?.method) && csrfToken) {
+    headers.set("X-CSRF-Token", csrfToken);
+  }
+  return {
     ...init,
+    headers,
+  };
+}
+
+async function request(url: string, init?: RequestInit) {
+  return fetch(url, {
+    credentials: "include",
+    ...withCsrf(init),
     cache: "no-store" as RequestCache,
   });
+}
+
+async function json<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await request(url, init);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -36,6 +62,7 @@ export interface AuthUser {
 export interface AuthSessionResponse {
   authenticated: boolean;
   user: AuthUser | null;
+  csrf_token: string;
 }
 
 export interface AuditLogItem {
@@ -53,28 +80,44 @@ export interface AuditLogItem {
 }
 
 export function fetchSession(): Promise<AuthSessionResponse> {
-  return json(`${BASE}/auth/me`);
+  return json<AuthSessionResponse>(`${BASE}/auth/me`).then((session) => {
+    setCsrfToken(session.csrf_token);
+    return session;
+  });
 }
 
-export function login(username: string, password: string): Promise<AuthSessionResponse> {
-  return json(`${BASE}/auth/login`, {
+export function login(
+  username: string,
+  password: string,
+): Promise<AuthSessionResponse> {
+  return json<AuthSessionResponse>(`${BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
+  }).then((session) => {
+    setCsrfToken(session.csrf_token);
+    return session;
   });
 }
 
 export function logout(): Promise<{ message: string }> {
-  return json(`${BASE}/auth/logout`, { method: "POST" });
+  return json<{ message: string; csrf_token: string }>(`${BASE}/auth/logout`, {
+    method: "POST",
+  }).then((result) => {
+    setCsrfToken(result.csrf_token);
+    return { message: result.message };
+  });
 }
 
-export function fetchAuditLogs(params: {
-  limit?: number;
-  offset?: number;
-  username?: string;
-  action?: string;
-  target?: string;
-} = {}): Promise<{ items: AuditLogItem[]; total: number }> {
+export function fetchAuditLogs(
+  params: {
+    limit?: number;
+    offset?: number;
+    username?: string;
+    action?: string;
+    target?: string;
+  } = {},
+): Promise<{ items: AuditLogItem[]; total: number }> {
   const search = new URLSearchParams();
   if (params.limit != null) search.set("limit", String(params.limit));
   if (params.offset != null) search.set("offset", String(params.offset));
@@ -197,7 +240,7 @@ export async function updateDiseaseTerm(
   termId: number,
   payload: { term_name?: string; notes?: string },
 ): Promise<DiseaseTerm> {
-  const res = await fetch(`${BASE}/disease_terms/${termId}`, {
+  const res = await request(`${BASE}/disease_terms/${termId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -329,6 +372,9 @@ export interface InsightCountSummary {
   trio_variants: number;
   total_variants: number;
   vcf_files: number;
+  vcf_content_variants: number;
+  vcf_files_readable: number;
+  vcf_files_skipped: number;
 }
 
 export interface CountByChromosome {
@@ -356,6 +402,13 @@ export interface CountByLabel {
   count: number;
 }
 
+export interface VcfPatientVariantSummary {
+  patient_id: number;
+  lab_number: string;
+  file_count: number;
+  variant_count: number;
+}
+
 export interface InsightSummaryResponse {
   counts: InsightCountSummary;
   demographic_distribution: {
@@ -366,6 +419,11 @@ export interface InsightSummaryResponse {
   };
   vcf_distribution: {
     file_size: CountByLabel[];
+  };
+  vcf_content_distribution: {
+    chromosome: CountByChromosome[];
+    variant_type: CountByLabel[];
+    by_patient: VcfPatientVariantSummary[];
   };
   chromosome_distribution: CountByChromosome[];
   top_variants: CountByVariant[];
@@ -393,8 +451,19 @@ export interface ExplainResponse {
   };
 }
 
-export function fetchInsightSummary(): Promise<InsightSummaryResponse> {
-  return json(`${BASE}/insights/summary`);
+export function fetchInsightSummary(
+  params: {
+    start_date?: string;
+    end_date?: string;
+    test_type?: string;
+  } = {},
+): Promise<InsightSummaryResponse> {
+  const search = new URLSearchParams();
+  if (params.start_date) search.set("start_date", params.start_date);
+  if (params.end_date) search.set("end_date", params.end_date);
+  if (params.test_type) search.set("test_type", params.test_type);
+  const suffix = search.toString() ? `?${search}` : "";
+  return json(`${BASE}/insights/summary${suffix}`);
 }
 
 export async function explainEntity(
@@ -402,7 +471,7 @@ export async function explainEntity(
   query: string,
   includeCitations = true,
 ): Promise<ExplainResponse> {
-  const res = await fetch(`${BASE}/insights/explain`, {
+  const res = await request(`${BASE}/insights/explain`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -430,7 +499,7 @@ export async function sendLocalLlmChat(params: {
   }>;
   retrieved_context?: string;
 }): Promise<LocalLlmChatResponse> {
-  const res = await fetch(`${BASE}/local-llm/chat`, {
+  const res = await request(`${BASE}/local-llm/chat`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -470,7 +539,7 @@ export function fetchPatient(id: number): Promise<PatientInfo> {
 export async function createPatient(
   payload: CreatePatientPayload,
 ): Promise<PatientInfo> {
-  const res = await fetch(`${BASE}/patients`, {
+  const res = await request(`${BASE}/patients`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -517,7 +586,7 @@ export function extractSelectedPatients(
 }
 
 export async function downloadCommonVariantsVcf(ids: number[]): Promise<void> {
-  const res = await fetch(`${BASE}/patients/extract/common_variants_vcf`, {
+  const res = await request(`${BASE}/patients/extract/common_variants_vcf`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -624,7 +693,7 @@ export async function uploadVcfFile(
 ): Promise<VcfFileInfo> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/patients/${patientId}/vcf`, {
+  const res = await request(`${BASE}/patients/${patientId}/vcf`, {
     method: "POST",
     credentials: "include",
     body: form,
@@ -650,7 +719,7 @@ export async function uploadSingletonXlsx(
 ): Promise<{ message: string; count: number }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/patients/${patientId}/upload/singleton`, {
+  const res = await request(`${BASE}/patients/${patientId}/upload/singleton`, {
     method: "POST",
     credentials: "include",
     body: form,
@@ -670,7 +739,7 @@ export async function uploadTrioXlsx(
 ): Promise<{ message: string; count: number }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/patients/${patientId}/upload/trio`, {
+  const res = await request(`${BASE}/patients/${patientId}/upload/trio`, {
     method: "POST",
     credentials: "include",
     body: form,
@@ -700,7 +769,7 @@ export async function fetchReportPreview(
   labNumber: string,
   testType: "singleton" | "trio",
 ): Promise<ReportPreview> {
-  const res = await fetch(`${BASE}/report/preview`, {
+  const res = await request(`${BASE}/report/preview`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -726,7 +795,7 @@ export async function downloadReport(params: {
   disclaimer: string;
   references: string;
 }): Promise<void> {
-  const res = await fetch(`${BASE}/report/generate`, {
+  const res = await request(`${BASE}/report/generate`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -757,7 +826,7 @@ export async function downloadReport(params: {
 export async function downloadSingleGeneReport(
   labNumber: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/report/generate-single-gene`, {
+  const res = await request(`${BASE}/report/generate-single-gene`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -792,7 +861,7 @@ export async function uploadPatientsXlsx(
 ): Promise<{ message: string; added: number; skipped: string[] }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/patients/upload`, {
+  const res = await request(`${BASE}/patients/upload`, {
     method: "POST",
     credentials: "include",
     body: form,

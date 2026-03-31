@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+from hmac import compare_digest
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -9,6 +11,9 @@ from flask import current_app, g, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from backend.models import AccessLog, AuthUser, db
+
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+CSRF_SESSION_KEY = "csrf_token"
 
 
 def hash_password(password: str) -> str:
@@ -24,6 +29,22 @@ def load_current_user() -> AuthUser | None:
     user = db.session.get(AuthUser, user_id) if user_id else None
     g.current_user = user
     return user
+
+
+def issue_csrf_token(reset: bool = False) -> str:
+    token = session.get(CSRF_SESSION_KEY)
+    if reset or not token:
+        token = secrets.token_urlsafe(32)
+        session[CSRF_SESSION_KEY] = token
+    g.csrf_token = token
+    return token
+
+
+def current_csrf_token() -> str:
+    token = getattr(g, "csrf_token", None)
+    if token:
+        return token
+    return issue_csrf_token()
 
 
 def auth_enabled() -> bool:
@@ -59,6 +80,7 @@ def require_admin():
 
 def login_user(user: AuthUser):
     session.clear()
+    issue_csrf_token(reset=True)
     session["user_id"] = user.id
     session.permanent = True
     user.last_login_at = datetime.now(timezone.utc)
@@ -67,7 +89,29 @@ def login_user(user: AuthUser):
 
 
 def logout_user():
-    session.pop("user_id", None)
+    session.clear()
+    issue_csrf_token(reset=True)
+
+
+def validate_csrf_request() -> bool:
+    if request.method in SAFE_METHODS or not request.path.startswith("/api/"):
+        return True
+    if not auth_enabled():
+        return True
+
+    expected = session.get(CSRF_SESSION_KEY)
+    if not expected:
+        expected = issue_csrf_token()
+
+    provided = (
+        request.headers.get("X-CSRF-Token")
+        or request.headers.get("X-CSRFToken")
+        or request.form.get("csrf_token")
+        or request.args.get("csrf_token")
+    )
+    if not provided or not compare_digest(expected, provided):
+        return False
+    return True
 
 
 def seed_default_admin_user():

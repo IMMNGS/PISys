@@ -7,7 +7,13 @@ from flask_cors import CORS
 
 from backend.config import config as config_map
 from backend.models import db
-from backend.security import load_current_user, log_access, seed_default_admin_user, auth_enabled
+from backend.security import (
+    auth_enabled,
+    load_current_user,
+    log_access,
+    seed_default_admin_user,
+    validate_csrf_request,
+)
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
@@ -91,6 +97,18 @@ def create_app(config_name="development"):
 
         if user is None:
             return jsonify({"error": "Authentication required"}), 401
+        return None
+
+    @app.before_request
+    def _protect_csrf():
+        if not request.path.startswith("/api/"):
+            return None
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            return None
+        if not auth_enabled():
+            return None
+        if not validate_csrf_request():
+            return jsonify({"error": "CSRF token missing or invalid"}), 403
         return None
 
     # Prevent browsers from caching API responses

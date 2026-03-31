@@ -1314,7 +1314,7 @@ GET    /api/admin/audit-logs               → { items, total }
 
 **Core behaviors:**
 
-- `GET /api/auth/me` returns the current signed-in user, if any.
+- `GET /api/auth/me` returns the current signed-in user, if any, plus a CSRF token.
 - `POST /api/auth/login` validates username/password and creates the session.
 - `POST /api/auth/logout` clears the session.
 - `POST /api/auth/change-password` requires the current password before updating the hash.
@@ -1322,6 +1322,13 @@ GET    /api/admin/audit-logs               → { items, total }
 - `POST /api/admin/users` creates users with `admin` or `user` role.
 - `GET /api/admin/audit-logs` returns access log entries filtered by username, action, or target.
 - Successful API access is written to `access_logs` by the shared audit hook.
+
+**CSRF protection:**
+
+- Unsafe API requests require an `X-CSRF-Token` header.
+- The token is issued by `GET /api/auth/me` and refreshed after login, logout, and password changes.
+- The frontend stores the token in memory and automatically attaches it to mutation requests.
+- This blocks cross-site form submissions because attacker-controlled pages cannot read the token.
 
 **Bootstrap credentials:**
 

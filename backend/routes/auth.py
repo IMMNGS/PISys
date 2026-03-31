@@ -6,7 +6,9 @@ from backend.models import AuthUser, db
 from backend.security import (
     audit_event,
     current_user,
+    current_csrf_token,
     hash_password,
+    issue_csrf_token,
     login_user,
     logout_user,
     serialize_user,
@@ -19,7 +21,7 @@ auth_bp = Blueprint("auth", __name__)
 @auth_bp.route("/auth/me", methods=["GET"])
 def me():
     user = current_user()
-    return jsonify({"authenticated": bool(user), "user": serialize_user(user)})
+    return jsonify({"authenticated": bool(user), "user": serialize_user(user), "csrf_token": current_csrf_token()})
 
 
 @auth_bp.route("/auth/login", methods=["POST"])
@@ -37,7 +39,7 @@ def login():
 
     login_user(user)
     audit_event(user, "login", "session", status_code=200)
-    return jsonify({"message": "Logged in", "user": serialize_user(user)})
+    return jsonify({"message": "Logged in", "user": serialize_user(user), "csrf_token": current_csrf_token()})
 
 
 @auth_bp.route("/auth/logout", methods=["POST"])
@@ -46,7 +48,7 @@ def logout():
     if user:
         audit_event(user, "logout", "session", status_code=200)
     logout_user()
-    return jsonify({"message": "Logged out"})
+    return jsonify({"message": "Logged out", "csrf_token": current_csrf_token()})
 
 
 @auth_bp.route("/auth/change-password", methods=["POST"])
@@ -69,5 +71,6 @@ def change_password():
     user.password_hash = hash_password(new_password)
     db.session.add(user)
     db.session.commit()
+    issue_csrf_token(reset=True)
     audit_event(user, "update", "password", status_code=200)
-    return jsonify({"message": "Password updated"})
+    return jsonify({"message": "Password updated", "csrf_token": current_csrf_token()})

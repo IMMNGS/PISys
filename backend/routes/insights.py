@@ -4,9 +4,12 @@ All logic in this module is local-only and does not call external services.
 """
 
 from collections import Counter
+from datetime import date
+import gzip
+import os
 import re
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from backend.models import HPOTerm, Patient, Singleton, Trio, VcfFile
 
@@ -118,15 +121,110 @@ def _bucket_file_size(size: int | None) -> str | None:
     return "100+ MB"
 
 
+def _classify_vcf_variant_type(ref: str | None, alt: str | None) -> str:
+    ref_text = (ref or "").strip()
+    alt_text = (alt or "").strip()
+    if not ref_text or not alt_text:
+        return "Unknown"
+    if alt_text.startswith("<") and alt_text.endswith(">"):
+        return "Symbolic"
+    if len(ref_text) == 1 and len(alt_text) == 1:
+        return "SNV"
+    if len(ref_text) == len(alt_text):
+        return "MNV"
+    if len(ref_text) < len(alt_text):
+        return "Insertion"
+    if len(ref_text) > len(alt_text):
+        return "Deletion"
+    return "Complex"
+
+
+def _extract_vcf_statistics(path: str) -> dict | None:
+    """Parse a VCF or VCF.GZ file and return summary counters.
+
+    The summary is intentionally lightweight so the descriptive statistics page
+    can surface content-level VCF metrics without introducing a heavy parser.
+    """
+    lower_path = str(path).lower()
+    if not (lower_path.endswith(".vcf") or lower_path.endswith(".vcf.gz")):
+        return None
+
+    opener = gzip.open if lower_path.endswith(".gz") else open
+    chromosome_counter = Counter()
+    variant_type_counter = Counter()
+    variant_count = 0
+
+    try:
+        with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if not line or line.startswith("#"):
+                    continue
+
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 5:
+                    continue
+
+                chrom = _extract_chromosome(parts[0])
+                ref = parts[3]
+                alts = parts[4]
+
+                for alt in str(alts).split(","):
+                    alt_text = alt.strip()
+                    if not alt_text:
+                        continue
+                    variant_count += 1
+                    if chrom:
+                        chromosome_counter[chrom] += 1
+                    variant_type_counter[_classify_vcf_variant_type(ref, alt_text)] += 1
+    except OSError:
+        return None
+
+    return {
+        "variant_count": variant_count,
+        "chromosome_counter": chromosome_counter,
+        "variant_type_counter": variant_type_counter,
+    }
+
+
 @insights_bp.route("/insights/summary", methods=["GET"])
 def get_summary():
-    # TODO(analytics-filters): Support query params for date range and test type,
-    # then compute aggregates on the filtered subset.
-    patients = Patient.query.count()
-    patient_rows = Patient.query.all()
-    singletons = Singleton.query.all()
-    trios = Trio.query.all()
-    vcf_rows = VcfFile.query.all()
+    start_date_raw = (request.args.get("start_date") or "").strip()
+    end_date_raw = (request.args.get("end_date") or "").strip()
+    test_type = (request.args.get("test_type") or "").strip()
+
+    query = Patient.query
+    if start_date_raw:
+        try:
+            query = query.filter(Patient.report_date >= date.fromisoformat(start_date_raw))
+        except ValueError:
+            return jsonify({"error": "start_date must be YYYY-MM-DD"}), 400
+    if end_date_raw:
+        try:
+            query = query.filter(Patient.report_date <= date.fromisoformat(end_date_raw))
+        except ValueError:
+            return jsonify({"error": "end_date must be YYYY-MM-DD"}), 400
+    if test_type:
+        query = query.filter(Patient.type_of_test.ilike(f"%{test_type}%"))
+
+    patient_rows = query.order_by(Patient.id.asc()).all()
+    patient_ids = [patient.id for patient in patient_rows]
+    patients = len(patient_rows)
+
+    singleton_query = Singleton.query
+    trio_query = Trio.query
+    vcf_query = VcfFile.query
+    if patient_ids:
+        singleton_query = singleton_query.filter(Singleton.patient_id.in_(patient_ids))
+        trio_query = trio_query.filter(Trio.patient_id.in_(patient_ids))
+        vcf_query = vcf_query.filter(VcfFile.patient_id.in_(patient_ids))
+    else:
+        singleton_query = singleton_query.filter(False)
+        trio_query = trio_query.filter(False)
+        vcf_query = vcf_query.filter(False)
+
+    singletons = singleton_query.all()
+    trios = trio_query.all()
+    vcf_rows = vcf_query.all()
 
     combined = [*singletons, *trios]
 
@@ -139,6 +237,18 @@ def get_summary():
     ethnicity_counter = Counter()
     test_counter = Counter()
     vcf_size_counter = Counter()
+    vcf_content_chromosome_counter = Counter()
+    vcf_content_type_counter = Counter()
+    vcf_patient_variant_counter = Counter()
+    vcf_patient_file_counter = Counter()
+    vcf_content_variant_count = 0
+    readable_vcf_files = 0
+    skipped_vcf_files = 0
+
+    patient_lab_numbers = {
+        patient.id: patient.lab_number
+        for patient in patient_rows
+    }
 
     for row in combined:
         chrom = _extract_chromosome(getattr(row, "chr_pos", None))
@@ -171,17 +281,48 @@ def get_summary():
             age_counter[age_bucket] += 1
 
     for row in vcf_rows:
+        vcf_patient_file_counter[row.patient_id] += 1
+
         size_bucket = _bucket_file_size(getattr(row, "file_size", None))
         if size_bucket:
             vcf_size_counter[size_bucket] += 1
 
+        disk_path = os.path.join(current_app.config["VCF_DIR"], row.relative_path)
+        stats = _extract_vcf_statistics(disk_path)
+        if not stats:
+            skipped_vcf_files += 1
+            continue
+
+        readable_vcf_files += 1
+        vcf_content_variant_count += stats["variant_count"]
+        vcf_content_chromosome_counter.update(stats["chromosome_counter"])
+        vcf_content_type_counter.update(stats["variant_type_counter"])
+        vcf_patient_variant_counter[row.patient_id] += stats["variant_count"]
+
+    vcf_by_patient = []
+    for patient_id, variant_count in vcf_patient_variant_counter.most_common(20):
+        vcf_by_patient.append({
+            "patient_id": patient_id,
+            "lab_number": patient_lab_numbers.get(patient_id, f"Patient {patient_id}"),
+            "file_count": vcf_patient_file_counter.get(patient_id, 0),
+            "variant_count": variant_count,
+        })
+
     payload = {
+        "filters": {
+            "start_date": start_date_raw or None,
+            "end_date": end_date_raw or None,
+            "test_type": test_type or None,
+        },
         "counts": {
             "patients": patients,
             "singleton_variants": len(singletons),
             "trio_variants": len(trios),
             "total_variants": len(combined),
             "vcf_files": len(vcf_rows),
+            "vcf_content_variants": vcf_content_variant_count,
+            "vcf_files_readable": readable_vcf_files,
+            "vcf_files_skipped": skipped_vcf_files,
         },
         "demographic_distribution": {
             "sex": [
@@ -206,6 +347,17 @@ def get_summary():
                 {"label": k, "count": v}
                 for k, v in vcf_size_counter.most_common()
             ],
+        },
+        "vcf_content_distribution": {
+            "chromosome": [
+                {"chromosome": k, "count": v}
+                for k, v in vcf_content_chromosome_counter.most_common(24)
+            ],
+            "variant_type": [
+                {"label": k, "count": v}
+                for k, v in vcf_content_type_counter.most_common()
+            ],
+            "by_patient": vcf_by_patient,
         },
         "chromosome_distribution": [
             {"chromosome": k, "count": v}
