@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchLocalLlmModels, sendLocalLlmChat } from "../api/client";
 import type { LocalLlmMessage, LocalLlmModelOption } from "../types";
 

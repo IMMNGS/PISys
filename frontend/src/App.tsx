@@ -7,7 +7,8 @@ import {
   useLocation,
 } from "react-router-dom";
 import Navbar from "./components/Navbar";
-import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { AuthProvider } from "./auth/authContext";
+import { useAuth } from "./auth/useAuth";
 import Home from "./pages/Home";
 import PatientDetail from "./pages/PatientDetail";
 import SelectPatients from "./pages/SelectPatients";
@@ -18,7 +19,6 @@ import DescriptiveStats from "./pages/DescriptiveStats";
 import Assistant from "./pages/Assistant";
 import Login from "./pages/Login";
 import AdminAudit from "./pages/AdminAudit";
-import { useAuth } from "./auth/useAuth";
 
 function AuthGate() {
   const { user, loading } = useAuth();
