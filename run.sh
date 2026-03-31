@@ -156,7 +156,13 @@ if [ "$first_time_setup" = true ]; then
 
   # Activate venv
   # shellcheck disable=SC1091
-  source "$PROJECT_DIR/.venv/bin/activate"
+  if [ -f "$PROJECT_DIR/.venv/bin/activate" ]; then
+    source "$PROJECT_DIR/.venv/bin/activate"
+  elif [ -f "$PROJECT_DIR/.venv/Scripts/activate" ]; then
+    source "$PROJECT_DIR/.venv/Scripts/activate"
+  else
+    fail "Could not find a virtual environment activate script in .venv/bin or .venv/Scripts."
+  fi
   ok "Virtual environment activated: $(which python)"
 
   # Install python deps

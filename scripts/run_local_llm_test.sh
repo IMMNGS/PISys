@@ -27,10 +27,26 @@ if [ ! -d "$ROOT_DIR/data/local_ai" ]; then
 fi
 
 if [ ! -d "$ROOT_DIR/.venv" ]; then
-  python3 -m venv "$ROOT_DIR/.venv"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -m venv "$ROOT_DIR/.venv"
+  elif command -v python >/dev/null 2>&1; then
+    python -m venv "$ROOT_DIR/.venv"
+  elif command -v py >/dev/null 2>&1; then
+    py -3 -m venv "$ROOT_DIR/.venv"
+  else
+    echo "Python is required but was not found on PATH."
+    exit 1
+  fi
 fi
 
-source "$ROOT_DIR/.venv/bin/activate"
+if [ -f "$ROOT_DIR/.venv/bin/activate" ]; then
+  source "$ROOT_DIR/.venv/bin/activate"
+elif [ -f "$ROOT_DIR/.venv/Scripts/activate" ]; then
+  source "$ROOT_DIR/.venv/Scripts/activate"
+else
+  echo "Could not find a virtual environment activate script in .venv/bin or .venv/Scripts."
+  exit 1
+fi
 
 python -m pip install -r requirements.txt >/dev/null
 
