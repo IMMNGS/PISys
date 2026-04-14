@@ -7,5 +7,6 @@ pymysql
 cryptography
 openpyxl
 python-docx
+python-dotenv
 gunicorn
 waitress

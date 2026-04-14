@@ -17,13 +17,6 @@ function Fail($Message) {
     exit 1
 }
 
-function Ensure-NonAdminAppRole {
-    if (-not $env:POSTGRES_USER) { return }
-    if ($env:POSTGRES_USER.Trim().ToLowerInvariant() -eq 'postgres') {
-        Fail "POSTGRES_USER must be a dedicated app role (e.g. pisysdb), not 'postgres'."
-    }
-}
-
 function Get-PythonCommand {
     if (Get-Command py -ErrorAction SilentlyContinue) { return @{ Exe = 'py'; BaseArgs = @('-3') } }
     if (Get-Command python3 -ErrorAction SilentlyContinue) { return @{ Exe = 'python3'; BaseArgs = @() } }
@@ -69,288 +62,6 @@ function Ensure-Directory([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
-function Add-PostgresBinToPath {
-    $pgRoot = 'C:\Program Files\PostgreSQL'
-    if (-not (Test-Path $pgRoot)) { return }
-
-    $binDirs = Get-ChildItem -Path $pgRoot -Directory -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending |
-        ForEach-Object { Join-Path $_.FullName 'bin' } |
-        Where-Object { Test-Path $_ }
-
-    foreach ($binDir in $binDirs) {
-        if ($env:Path -notlike "*$binDir*") {
-            $env:Path = "$binDir;$env:Path"
-        }
-    }
-}
-
-function Test-PostgresInstalled {
-    Add-PostgresBinToPath
-
-    if (Get-Command psql -ErrorAction SilentlyContinue) {
-        return $true
-    }
-
-    $pgRoot = 'C:\Program Files\PostgreSQL'
-    if (Test-Path $pgRoot) {
-        $psqlExe = Get-ChildItem -Path $pgRoot -Filter psql.exe -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if ($psqlExe) {
-            return $true
-        }
-    }
-
-    $services = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
-    if ($services) {
-        return $true
-    }
-
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $wingetIds = @(
-            'PostgreSQL.PostgreSQL.18',
-            'PostgreSQL.PostgreSQL',
-            'PostgreSQL.PostgreSQL.17',
-            'PostgreSQL.PostgreSQL.16',
-            'PostgreSQL.PostgreSQL.15',
-            'EnterpriseDB.PostgreSQL'
-        )
-
-        foreach ($pkg in $wingetIds) {
-            $listOutput = (& winget list --id=$pkg -e --source winget 2>&1 | Out-String)
-            if ($LASTEXITCODE -eq 0 -and $listOutput -notmatch 'No installed package found') {
-                return $true
-            }
-        }
-    }
-
-    return $false
-}
-
-function Ensure-PostgresInstalled {
-    if (Test-PostgresInstalled) {
-        Write-Ok 'PostgreSQL installation detected.'
-        return
-    }
-
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        Fail 'PostgreSQL is not installed and winget is unavailable. Install PostgreSQL manually, then rerun setup.'
-    }
-
-    Write-Info 'PostgreSQL not found. Updating winget sources...'
-    & winget source update | Out-Null
-
-    $packageIds = @(
-        'PostgreSQL.PostgreSQL.18',
-        'PostgreSQL.PostgreSQL',
-        'PostgreSQL.PostgreSQL.17',
-        'PostgreSQL.PostgreSQL.16',
-        'PostgreSQL.PostgreSQL.15',
-        'EnterpriseDB.PostgreSQL'
-    )
-
-    $installed = $false
-    foreach ($pkg in $packageIds) {
-        Write-Info "Trying winget package id: $pkg"
-        Write-Info 'If installer prompts appear, complete them and return to this setup window.'
-        & winget install --id=$pkg -e --source winget --accept-package-agreements --accept-source-agreements
-        Add-PostgresBinToPath
-        if ($LASTEXITCODE -eq 0 -and (Test-PostgresInstalled)) {
-            $installed = $true
-            break
-        }
-    }
-
-    if (-not $installed) {
-        Write-Warn 'No known PostgreSQL package id could be installed automatically.'
-        Write-Info 'Available winget PostgreSQL entries:'
-        & winget search PostgreSQL --source winget
-        Fail 'PostgreSQL installation failed. Install one of the listed PostgreSQL packages manually, then rerun setup.'
-    }
-
-    if (-not (Test-PostgresInstalled)) {
-        Fail 'PostgreSQL installation did not complete successfully. Install PostgreSQL manually, then rerun setup.'
-    }
-
-    Write-Ok 'PostgreSQL installation complete.'
-}
-
-function Ensure-PostgresServiceRunning {
-    # Only attempt local service checks when using localhost/loopback.
-    $isLocalHost = $env:POSTGRES_HOST -in @('localhost', '127.0.0.1', '::1')
-    if (-not $isLocalHost) { return }
-
-    $services = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
-    if (-not $services) {
-        Write-Warn 'No PostgreSQL Windows service found. Verify your PostgreSQL installation.'
-        return
-    }
-
-    foreach ($svc in $services) {
-        if ($svc.Status -ne 'Running') {
-            try {
-                Write-Info "Starting service $($svc.Name)..."
-                Start-Service -Name $svc.Name -ErrorAction Stop
-            } catch {
-                Write-Warn "Could not start service $($svc.Name). Try running setup as Administrator."
-            }
-        }
-    }
-}
-
-function Read-SecretValue([string]$Prompt) {
-    $secure = Read-Host -Prompt $Prompt -AsSecureString
-    $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    try {
-        return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-    } finally {
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
-    }
-}
-
-function Read-RequiredSecretValue([string]$Prompt) {
-    while ($true) {
-        $value = Read-SecretValue -Prompt $Prompt
-        if (-not [string]::IsNullOrWhiteSpace($value)) {
-            return $value
-        }
-        Write-Warn 'A non-empty password is required for setup.'
-    }
-}
-
-function Escape-SqlLiteral([string]$Value) {
-    return $Value.Replace("'", "''")
-}
-
-function Escape-SqlIdentifier([string]$Value) {
-    return $Value.Replace('"', '""')
-}
-
-function Resolve-PsqlExe {
-    Add-PostgresBinToPath
-
-    $cmd = Get-Command psql -ErrorAction SilentlyContinue
-    if ($cmd) {
-        return $cmd.Source
-    }
-
-    $pgRoot = 'C:\Program Files\PostgreSQL'
-    if (Test-Path $pgRoot) {
-        $psqlExe = Get-ChildItem -Path $pgRoot -Filter psql.exe -Recurse -ErrorAction SilentlyContinue |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1
-        if ($psqlExe) {
-            return $psqlExe.FullName
-        }
-    }
-
-    return $null
-}
-
-function Invoke-PsqlCommand([string]$Password, [string[]]$Args) {
-    if (-not $script:PsqlExe) {
-        $script:PsqlExe = Resolve-PsqlExe
-    }
-    if (-not $script:PsqlExe) {
-        Fail 'psql command not found after PostgreSQL installation. Cannot reset postgres password automatically.'
-    }
-
-    $oldPgPassword = $env:PGPASSWORD
-    [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $Password, 'Process')
-    try {
-        & $script:PsqlExe @Args
-    } finally {
-        if ($null -eq $oldPgPassword) {
-            [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $null, 'Process')
-        } else {
-            [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $oldPgPassword, 'Process')
-        }
-    }
-}
-
-function Test-PsqlLogin([string]$User, [string]$Password) {
-    $args = @('-h', $env:POSTGRES_HOST, '-p', $env:POSTGRES_PORT, '-U', $User, '-d', 'postgres', '-tAc', 'SELECT 1;')
-    Invoke-PsqlCommand -Password $Password -Args $args | Out-Null
-    return ($LASTEXITCODE -eq 0)
-}
-
-function Ensure-PostgresRoleForSetup {
-    Ensure-NonAdminAppRole
-
-    $script:PsqlExe = Resolve-PsqlExe
-    if (-not $script:PsqlExe) {
-        Fail 'psql command not found after PostgreSQL installation. Cannot reset postgres password automatically.'
-    }
-
-    if ($env:POSTGRES_HOST -notin @('localhost', '127.0.0.1', '::1')) {
-        Write-Warn "Skipping PostgreSQL role bootstrap for non-local host '$($env:POSTGRES_HOST)'."
-        return
-    }
-
-    $targetUser = $env:POSTGRES_USER
-    $targetPassword = $env:POSTGRES_PASSWORD
-    if ([string]::IsNullOrWhiteSpace($targetPassword)) {
-        $targetPassword = Read-RequiredSecretValue -Prompt "Enter NEW PostgreSQL password for user '$targetUser'"
-    }
-
-    if (Test-PsqlLogin -User $targetUser -Password $targetPassword) {
-        [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $targetPassword, 'Process')
-        Write-Ok "PostgreSQL credentials for '$targetUser' are valid."
-        return
-    }
-
-    Write-Warn "Could not authenticate as '$targetUser'. Attempting role bootstrap with an admin account."
-    $adminUser = if ($env:POSTGRES_ADMIN_USER) { $env:POSTGRES_ADMIN_USER } else { 'postgres' }
-    $adminPassword = if ($env:POSTGRES_ADMIN_PASSWORD) { $env:POSTGRES_ADMIN_PASSWORD } else { '' }
-
-    $adminReady = $false
-    if (-not [string]::IsNullOrWhiteSpace($adminPassword) -and (Test-PsqlLogin -User $adminUser -Password $adminPassword)) {
-        $adminReady = $true
-    }
-
-    if (-not $adminReady) {
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-            $adminPassword = Read-RequiredSecretValue -Prompt "Enter CURRENT PostgreSQL password for admin user '$adminUser'"
-            if (Test-PsqlLogin -User $adminUser -Password $adminPassword) {
-                $adminReady = $true
-                break
-            }
-            Write-Warn "Admin authentication failed (attempt $attempt/3)."
-        }
-    }
-
-    if (-not $adminReady) {
-        Fail "Unable to authenticate as PostgreSQL admin '$adminUser'. Set POSTGRES_ADMIN_USER/POSTGRES_ADMIN_PASSWORD and rerun setup."
-    }
-
-    $escapedUser = Escape-SqlIdentifier -Value $targetUser
-    $escapedPassword = Escape-SqlLiteral -Value $targetPassword
-    $roleSql = @"
-DO
-\$\$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$targetUser') THEN
-        EXECUTE 'CREATE ROLE ""$escapedUser"" LOGIN PASSWORD ''$escapedPassword''';
-    ELSE
-        EXECUTE 'ALTER ROLE ""$escapedUser"" WITH LOGIN PASSWORD ''$escapedPassword''';
-    END IF;
-END
-\$\$;
-"@
-    $roleArgs = @('-h', $env:POSTGRES_HOST, '-p', $env:POSTGRES_PORT, '-U', $adminUser, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', $roleSql)
-    Invoke-PsqlCommand -Password $adminPassword -Args $roleArgs | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Fail "Failed to create or update PostgreSQL role '$targetUser'."
-    }
-
-    if (-not (Test-PsqlLogin -User $targetUser -Password $targetPassword)) {
-        Fail "Role bootstrap finished, but login still fails for '$targetUser'."
-    }
-
-    [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $targetPassword, 'Process')
-    Write-Ok "PostgreSQL role '$targetUser' is ready for setup."
-}
-
 $PythonCommand = Get-PythonCommand
 if (-not $PythonCommand) {
     Fail 'Python 3 was not found on PATH. Install Python 3.9+ and try again.'
@@ -363,24 +74,19 @@ Load-EnvFile (Join-Path $ProjectDir '.env')
 
 # MySQL defaults match backend/config.py and run.sh.
 if (-not $env:MYSQL_USER) {
-    if ($env:POSTGRES_USER) { [System.Environment]::SetEnvironmentVariable('MYSQL_USER', $env:POSTGRES_USER, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('MYSQL_USER', 'root', 'Process') }
+    [System.Environment]::SetEnvironmentVariable('MYSQL_USER', 'root', 'Process')
 }
 if (-not $env:MYSQL_PASSWORD) {
-    if ($env:POSTGRES_PASSWORD) { [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', $env:POSTGRES_PASSWORD, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', 'password', 'Process') }
+    [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', 'password', 'Process')
 }
 if (-not $env:MYSQL_HOST) {
-    if ($env:POSTGRES_HOST) { [System.Environment]::SetEnvironmentVariable('MYSQL_HOST', $env:POSTGRES_HOST, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('MYSQL_HOST', 'localhost', 'Process') }
+    [System.Environment]::SetEnvironmentVariable('MYSQL_HOST', 'localhost', 'Process')
 }
 if (-not $env:MYSQL_PORT) {
-    if ($env:POSTGRES_PORT) { [System.Environment]::SetEnvironmentVariable('MYSQL_PORT', $env:POSTGRES_PORT, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('MYSQL_PORT', '3306', 'Process') }
+    [System.Environment]::SetEnvironmentVariable('MYSQL_PORT', '3306', 'Process')
 }
 if (-not $env:MYSQL_DB) {
-    if ($env:POSTGRES_DB) { [System.Environment]::SetEnvironmentVariable('MYSQL_DB', $env:POSTGRES_DB, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('MYSQL_DB', 'pisys_db', 'Process') }
+    [System.Environment]::SetEnvironmentVariable('MYSQL_DB', 'pisys_db', 'Process')
 }
 
 $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
@@ -472,7 +178,7 @@ if ($Mode -eq 'production') {
     if (Get-Command waitress-serve -ErrorAction SilentlyContinue) {
         & waitress-serve --listen=0.0.0.0:8000 run:app
     } else {
-        & $VenvPy run.py
+        Fail 'waitress-serve is not available. Reinstall requirements and rerun production mode.'
     }
 } else {
     Write-Info 'Starting in development mode'
