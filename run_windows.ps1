@@ -175,10 +175,27 @@ if ($Mode -eq 'production') {
 
     & $VenvPy -m pip install -r requirements.txt
 
-    if (Get-Command waitress-serve -ErrorAction SilentlyContinue) {
-        & waitress-serve --listen=0.0.0.0:8000 run:app
+    $waitressExe = Join-Path $ProjectDir '.venv\Scripts\waitress-serve.exe'
+    if (Test-Path $waitressExe) {
+        & $waitressExe --listen=0.0.0.0:8000 run:app
+        exit $LASTEXITCODE
+    }
+
+    # Fallback for environments where the console script is missing but package is installed.
+    $waitressInstalled = $false
+    try {
+        & $VenvPy -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('waitress') else 1)"
+        if ($LASTEXITCODE -eq 0) {
+            $waitressInstalled = $true
+        }
+    } catch {
+        $waitressInstalled = $false
+    }
+
+    if ($waitressInstalled) {
+        & $VenvPy -m waitress --listen=0.0.0.0:8000 run:app
     } else {
-        Fail 'waitress-serve is not available. Reinstall requirements and rerun production mode.'
+        Fail 'Waitress is not available in .venv. Run: .venv\\Scripts\\python.exe -m pip install -r requirements.txt'
     }
 } else {
     Write-Info 'Starting in development mode'
