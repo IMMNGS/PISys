@@ -10,7 +10,7 @@ class Config:
 
     # PostgreSQL connection — update these for your environment.
     # MYSQL_* fallback keeps older .env files working during migration.
-    POSTGRES_USER = os.environ.get("POSTGRES_USER", os.environ.get("MYSQL_USER", "postgres"))
+    POSTGRES_USER = os.environ.get("POSTGRES_USER", os.environ.get("MYSQL_USER", "pisysdb"))
     POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", os.environ.get("MYSQL_PASSWORD", ""))
     POSTGRES_HOST = os.environ.get("POSTGRES_HOST", os.environ.get("MYSQL_HOST", "localhost"))
     POSTGRES_PORT = os.environ.get("POSTGRES_PORT", os.environ.get("MYSQL_PORT", "5432"))

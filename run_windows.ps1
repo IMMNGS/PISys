@@ -248,43 +248,85 @@ function Invoke-PsqlCommand([string]$Password, [string[]]$Args) {
     }
 }
 
-function Reset-PostgresPasswordForSetup {
+function Test-PsqlLogin([string]$User, [string]$Password) {
+    $args = @('-h', $env:POSTGRES_HOST, '-p', $env:POSTGRES_PORT, '-U', $User, '-d', 'postgres', '-tAc', 'SELECT 1;')
+    Invoke-PsqlCommand -Password $Password -Args $args | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Ensure-PostgresRoleForSetup {
     $script:PsqlExe = Resolve-PsqlExe
     if (-not $script:PsqlExe) {
         Fail 'psql command not found after PostgreSQL installation. Cannot reset postgres password automatically.'
     }
 
-    $user = $env:POSTGRES_USER
-    $dbHost = $env:POSTGRES_HOST
-    $dbPort = $env:POSTGRES_PORT
+    if ($env:POSTGRES_HOST -notin @('localhost', '127.0.0.1', '::1')) {
+        Write-Warn "Skipping PostgreSQL role bootstrap for non-local host '$($env:POSTGRES_HOST)'."
+        return
+    }
 
-    # Always require a target password during setup.
-    $targetPassword = Read-RequiredSecretValue -Prompt "Enter NEW PostgreSQL password for user '$user'"
+    $targetUser = $env:POSTGRES_USER
+    $targetPassword = $env:POSTGRES_PASSWORD
+    if ([string]::IsNullOrWhiteSpace($targetPassword)) {
+        $targetPassword = Read-RequiredSecretValue -Prompt "Enter NEW PostgreSQL password for user '$targetUser'"
+    }
 
-    $verifyArgs = @('-h', $dbHost, '-p', $dbPort, '-U', $user, '-d', 'postgres', '-tAc', 'SELECT 1;')
-    Invoke-PsqlCommand -Password $targetPassword -Args $verifyArgs | Out-Null
+    if (Test-PsqlLogin -User $targetUser -Password $targetPassword) {
+        [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $targetPassword, 'Process')
+        Write-Ok "PostgreSQL credentials for '$targetUser' are valid."
+        return
+    }
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "Could not authenticate with the new password directly."
-        $currentPassword = Read-RequiredSecretValue -Prompt "Enter CURRENT PostgreSQL password for user '$user' to reset it"
+    Write-Warn "Could not authenticate as '$targetUser'. Attempting role bootstrap with an admin account."
+    $adminUser = if ($env:POSTGRES_ADMIN_USER) { $env:POSTGRES_ADMIN_USER } else { 'postgres' }
+    $adminPassword = if ($env:POSTGRES_ADMIN_PASSWORD) { $env:POSTGRES_ADMIN_PASSWORD } else { '' }
 
-        $escapedUser = Escape-SqlIdentifier -Value $user
-        $escapedPassword = Escape-SqlLiteral -Value $targetPassword
-        $alterSql = 'ALTER USER "{0}" WITH PASSWORD ''{1}'';' -f $escapedUser, $escapedPassword
-        $alterArgs = @('-h', $dbHost, '-p', $dbPort, '-U', $user, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', $alterSql)
+    $adminReady = $false
+    if (-not [string]::IsNullOrWhiteSpace($adminPassword) -and (Test-PsqlLogin -User $adminUser -Password $adminPassword)) {
+        $adminReady = $true
+    }
 
-        Invoke-PsqlCommand -Password $currentPassword -Args $alterArgs | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Fail "Failed to reset PostgreSQL password for '$user'. Verify the current password and try setup again."
+    if (-not $adminReady) {
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            $adminPassword = Read-RequiredSecretValue -Prompt "Enter CURRENT PostgreSQL password for admin user '$adminUser'"
+            if (Test-PsqlLogin -User $adminUser -Password $adminPassword) {
+                $adminReady = $true
+                break
+            }
+            Write-Warn "Admin authentication failed (attempt $attempt/3)."
         }
     }
 
-    [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $targetPassword, 'Process')
-    Write-Ok "PostgreSQL password for '$user' is set for this setup run."
-}
+    if (-not $adminReady) {
+        Fail "Unable to authenticate as PostgreSQL admin '$adminUser'. Set POSTGRES_ADMIN_USER/POSTGRES_ADMIN_PASSWORD and rerun setup."
+    }
 
-function Ensure-PostgresPasswordForSetup {
-    Reset-PostgresPasswordForSetup
+    $escapedUser = Escape-SqlIdentifier -Value $targetUser
+    $escapedPassword = Escape-SqlLiteral -Value $targetPassword
+    $roleSql = @"
+DO
+\$\$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$targetUser') THEN
+        EXECUTE 'CREATE ROLE ""$escapedUser"" LOGIN PASSWORD ''$escapedPassword''';
+    ELSE
+        EXECUTE 'ALTER ROLE ""$escapedUser"" WITH LOGIN PASSWORD ''$escapedPassword''';
+    END IF;
+END
+\$\$;
+"@
+    $roleArgs = @('-h', $env:POSTGRES_HOST, '-p', $env:POSTGRES_PORT, '-U', $adminUser, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', $roleSql)
+    Invoke-PsqlCommand -Password $adminPassword -Args $roleArgs | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Failed to create or update PostgreSQL role '$targetUser'."
+    }
+
+    if (-not (Test-PsqlLogin -User $targetUser -Password $targetPassword)) {
+        Fail "Role bootstrap finished, but login still fails for '$targetUser'."
+    }
+
+    [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $targetPassword, 'Process')
+    Write-Ok "PostgreSQL role '$targetUser' is ready for setup."
 }
 
 $PythonCommand = Get-PythonCommand
@@ -300,7 +342,7 @@ Load-EnvFile (Join-Path $ProjectDir '.env')
 # PostgreSQL defaults match backend/config.py and run.sh.
 if (-not $env:POSTGRES_USER) {
     if ($env:MYSQL_USER) { [System.Environment]::SetEnvironmentVariable('POSTGRES_USER', $env:MYSQL_USER, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('POSTGRES_USER', 'postgres', 'Process') }
+    else { [System.Environment]::SetEnvironmentVariable('POSTGRES_USER', 'pisysdb', 'Process') }
 }
 if (-not $env:POSTGRES_PASSWORD) {
     if ($env:MYSQL_PASSWORD) { [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $env:MYSQL_PASSWORD, 'Process') }
@@ -331,7 +373,7 @@ function Run-Setup {
 
     Ensure-PostgresInstalled
     Ensure-PostgresServiceRunning
-    Ensure-PostgresPasswordForSetup
+    Ensure-PostgresRoleForSetup
 
     if (-not (Test-Path $VenvPy)) {
         Invoke-PythonCommand -PythonArgs @('-m', 'venv', '.venv')
