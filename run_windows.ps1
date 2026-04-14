@@ -75,8 +75,13 @@ function Ensure-PostgresInstalled {
         Fail 'PostgreSQL is not installed and winget is unavailable. Install PostgreSQL manually, then rerun setup.'
     }
 
-    Write-Info 'PostgreSQL not found. Installing via winget (this may prompt for elevation)...'
-    & winget install --id PostgreSQL.PostgreSQL --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+    Write-Info 'PostgreSQL not found. Installing via winget in interactive mode...'
+    Write-Info 'Complete any installer prompts, then return to this setup window.'
+    & winget install --id PostgreSQL.PostgreSQL --exact --accept-package-agreements --accept-source-agreements
+    $wingetExit = $LASTEXITCODE
+    if ($wingetExit -ne 0) {
+        Fail "PostgreSQL installation failed (winget exit code: $wingetExit)."
+    }
 
     Add-PostgresBinToPath
 
