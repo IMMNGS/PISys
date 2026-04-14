@@ -175,9 +175,14 @@ if ($Mode -eq 'production') {
 
     & $VenvPy -m pip install -r requirements.txt
 
+    $ListenAddress = '0.0.0.0:8000'
+    Write-Ok 'Backend is ready to accept requests once Waitress starts.'
+    Write-Info 'Open http://127.0.0.1:8000 in your browser (do not use https).'
+    Write-Info 'This terminal stays attached to the running server. Press Ctrl+C to stop it.'
+
     $waitressExe = Join-Path $ProjectDir '.venv\Scripts\waitress-serve.exe'
     if (Test-Path $waitressExe) {
-        & $waitressExe --listen=0.0.0.0:8000 run:app
+        & $waitressExe --listen=$ListenAddress run:app
         exit $LASTEXITCODE
     }
 
@@ -193,7 +198,7 @@ if ($Mode -eq 'production') {
     }
 
     if ($waitressInstalled) {
-        & $VenvPy -m waitress --listen=0.0.0.0:8000 run:app
+        & $VenvPy -m waitress --listen=$ListenAddress run:app
     } else {
         Fail 'Waitress is not available in .venv. Run: .venv\\Scripts\\python.exe -m pip install -r requirements.txt'
     }
