@@ -2,6 +2,7 @@
 
 import gzip
 import io
+import math
 import os
 from datetime import date, datetime, timezone
 
@@ -295,11 +296,29 @@ def upload_patients_xlsx():
     added = 0
     skipped = []
     invalid = []
+
+    def _has_non_lab_data(row_dict):
+        """True when at least one non-lab field in a row has a meaningful value."""
+        for key, value in row_dict.items():
+            if key == "lab_number":
+                continue
+            if value is None:
+                continue
+            if isinstance(value, float) and math.isnan(value):
+                continue
+            if isinstance(value, str) and value.strip() == "":
+                continue
+            return True
+        return False
+
     for row in rows:
         lab = row.get("lab_number")
         if not lab:
             continue
         lab = str(lab).strip()
+        if not _has_non_lab_data(row):
+            # Ignore rows where only lab number is present.
+            continue
         if not validate_lab_number(lab):
             invalid.append(lab)
             continue
