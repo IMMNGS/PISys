@@ -241,7 +241,7 @@ function Reset-PostgresPasswordForSetup {
 
         $escapedUser = Escape-SqlIdentifier -Value $user
         $escapedPassword = Escape-SqlLiteral -Value $targetPassword
-        $alterSql = "ALTER USER \"$escapedUser\" WITH PASSWORD '$escapedPassword';"
+        $alterSql = 'ALTER USER "{0}" WITH PASSWORD ''{1}'';' -f $escapedUser, $escapedPassword
         $alterArgs = @('-h', $host, '-p', $port, '-U', $user, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', $alterSql)
 
         Invoke-PsqlCommand -Password $currentPassword -Args $alterArgs | Out-Null
