@@ -328,7 +328,33 @@ def _normalize_variant_field(field, value):
         if not value:
             return None
         if field == "reportable_variant":
-            return value.upper()
+            # Canonicalize reportable marker values used throughout reports.
+            rv = value.upper()
+            token_map = {
+                "C": "C",
+                "CONFIRMED": "C",
+                "A": "A",
+                "ADDITIONAL": "A",
+                "I": "I",
+                "INCIDENTAL": "I",
+                "N": "N",
+                "NEGATIVE": "N",
+                "NONE": "N",
+            }
+            if rv in token_map:
+                return token_map[rv]
+
+            # Support delimited multi-flag values like "A/I" or "C, N".
+            split_tokens = [t for t in re.split(r"[^A-Z]+", rv) if t]
+            if split_tokens and all(t in {"C", "A", "I", "N"} for t in split_tokens):
+                return "".join(dict.fromkeys(split_tokens))
+
+            # Support compact markers like "CAI" only when string is purely marker chars.
+            if re.fullmatch(r"[CAIN]{1,4}", rv):
+                return "".join(dict.fromkeys(rv))
+
+            # Non-marker free text should be treated as absent to allow note-row filtering.
+            return None
         # Truncate strictly constrained fields to prevent DB errors from unexpected lengthy text or hidden comments
         if field in {"inheritance", "inherited_from"} and len(value) > 100:
             return value[:100]

@@ -10,6 +10,8 @@ import os
 import re
 import tempfile
 from datetime import datetime
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
@@ -224,7 +226,7 @@ def _generate_table(doc, variants, include_inherited_from=False):
         table.allow_autofit = False
 
         # Column widths similar to legacy implementation
-        widths = [2.5, 4.0, 2.0, 2.0, 2.0, 1.5, 2.0]
+        widths = [1.1, 1.6, 0.85, 0.9, 0.95, 0.65, 1.1]
         for i, width in enumerate(widths):
             table.columns[i].width = Inches(width)
         # Match legacy total table width used in `patient_info`
@@ -290,7 +292,7 @@ def _generate_table(doc, variants, include_inherited_from=False):
         # Row 3: position headers (first 5 columns)
         position_headers = [
             '',
-            'Position                                                                                                                REF/ALT',
+            'Position        REF/ALT',
             'Assembly',
             'SNP Identifier',
             'Phenotype',
@@ -301,6 +303,7 @@ def _generate_table(doc, variants, include_inherited_from=False):
             if hdr:
                 for run in cell.paragraphs[0].runs:
                     run.bold = True
+        table.cell(2, 4).merge(table.cell(2, 5)).merge(table.cell(2, 6))
 
         # Row 4: position data
         position = v.chr_pos or ''
@@ -309,27 +312,113 @@ def _generate_table(doc, variants, include_inherited_from=False):
 
         phenotype = ''
         titles = (v.title or '').split(';') if v.title else []
-        omim_ids = (v.omim_id or '').split(',') if (v.omim_id) else []
+        omim_ids = (v.omim_id or '').split(',') if v.omim_id else []
         if titles and omim_ids:
-            pairs = []
-            for a, b in zip(titles, omim_ids):
-                a = a.strip()
-                b = b.strip()
-                if a and b:
-                    pairs.append(f"{a} #{b}")
-            phenotype = '; '.join(pairs) + (';' if pairs else '')
+            tmp_text = '; '.join(
+                f"{a.strip()} #{b.strip()}"
+                for a, b in zip(titles, omim_ids)
+                if a and b and a.strip() and b.strip()
+            )
+            phenotype = f"{tmp_text};" if tmp_text else ''
 
         position_data = [
             '',
-            f"{position}                                                                                                            {ref_alt}",
+            f"{position}\t{ref_alt}",
             'GRCh38',
             rsid,
             phenotype,
         ]
         for i, val in enumerate(position_data):
             table.cell(3, i).text = str(val) if val is not None else ''
+        table.cell(3, 4).merge(table.cell(3, 5)).merge(table.cell(3, 6))
+
+        _set_table_font_size(table, 9, idx_rows=[1, 3], idx_cols=[3])
 
         doc.add_paragraph()
+
+
+def _set_table_border_color(table, color="FFFFFF"):
+    """Set all borders of a table to a specific color."""
+    tbl = table._element
+    tbl_pr = tbl.tblPr
+
+    tbl_borders = OxmlElement('w:tblBorders')
+    tbl_pr.append(tbl_borders)
+
+    for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+        border = tbl_borders.find(qn(f"w:{border_name}"))
+        if border is None:
+            border = OxmlElement(f"w:{border_name}")
+            tbl_borders.append(border)
+        border.set(qn("w:val"), "single")
+        border.set(qn("w:sz"), "4")
+        border.set(qn("w:space"), "0")
+        border.set(qn("w:color"), color)
+
+
+def _set_table_font_size(table, size_pt, idx_rows=None, idx_cols=None):
+    """Adjust run font size for selected table cells."""
+    from docx.shared import Pt
+
+    for i, row in enumerate(table.rows):
+        if idx_rows is not None and i not in idx_rows:
+            continue
+        for j, cell in enumerate(row.cells):
+            if idx_cols is not None and j not in idx_cols:
+                continue
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(size_pt)
+
+
+def _build_demographic_table(doc, patient):
+    """Add patient header block table matching patient_info3 layout."""
+    from docx.shared import Pt, Inches
+
+    table = doc.add_table(rows=10, cols=2)
+    table.style = "Table Grid"
+    table.allow_autofit = False
+    table.columns[0].width = Inches(2.5)
+    table.columns[1].width = Inches(4)
+
+    for row in table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                paragraph.paragraph_format.space_before = Pt(0.1)
+                paragraph.paragraph_format.space_after = Pt(0.1)
+                paragraph.paragraph_format.left_indent = Inches(0.1)
+                paragraph.paragraph_format.right_indent = Inches(0.1)
+        row.height = Inches(0.36)
+
+    age_display = f"{patient.age or ''} {patient.age_unit or ''}".strip()
+    row_data = [["REPORT DATE: ", _format_date(patient.report_date)]]
+    info_pairs = [
+        ("Lab. #", f"{patient.im_lab_number or ''}/{patient.lab_number}"),
+        ("Name", patient.name or ""),
+        ("HKID", patient.hkid or ""),
+        ("Date of Birth", _format_date(patient.dob)),
+        ("Sex", patient.sex or ""),
+        ("Age", age_display),
+        ("Ethnicity", patient.ethnicity or ""),
+        ("Specimen Collected", _format_date(patient.specimen_collected)),
+        ("Specimen Arrived", _format_date(patient.specimen_arrived)),
+    ]
+    for label, value in info_pairs:
+        row_data.append([f"{label}:", value])
+
+    for idx, (k, v) in enumerate(row_data):
+        key_cell = table.cell(idx, 0)
+        key_cell.text = str(k) if k else ""
+        if key_cell.paragraphs and key_cell.paragraphs[0].runs:
+            key_cell.paragraphs[0].runs[0].bold = True
+
+        val_cell = table.cell(idx, 1)
+        val_cell.text = str(v) if v else ""
+        if idx == 0 and val_cell.paragraphs and val_cell.paragraphs[0].runs:
+            val_cell.paragraphs[0].runs[0].bold = True
+
+    _set_table_border_color(table, "FFFFFF")
+    doc.add_paragraph()
 
 def _build_qc_table(doc):
         """Insert the Sequencing Performance Metrics QC table."""
@@ -340,6 +429,20 @@ def _build_qc_table(doc):
 
         table = doc.add_table(rows=2, cols=7)
         table.style = "Table Grid"
+        table.allow_autofit = False
+        table.width = Inches(16.0)
+
+        widths = [1.3, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0]
+        for i, width in enumerate(widths):
+            table.columns[i].width = Inches(width)
+
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    paragraph.paragraph_format.space_before = Pt(0)
+                    paragraph.paragraph_format.space_after = Pt(0)
+                    paragraph.paragraph_format.left_indent = Inches(0.1)
+                    paragraph.paragraph_format.right_indent = Inches(0.1)
 
         headers = [
             "PANELS", "GENES", "EXONS/\nREGIONS", "BASES",
@@ -386,7 +489,6 @@ def create_word_document(
 
         # Control document dimensions and styles
         section = doc.sections[0]
-        section.page_width = Inches(11) # Default 8.27 for A4
         section.left_margin = Inches(1)
         section.right_margin = Inches(1)
 
@@ -394,28 +496,7 @@ def create_word_document(
         style.font.name = "Calibri"
         style.font.size = Pt(12)
 
-        # Add report date with label and proper formatting
-        p = doc.add_paragraph()
-        p.add_run("REPORT DATE: ").bold = True
-        p.add_run(_format_date(patient.report_date)).bold = True
-
-        # Patient info
-        age_display = f"{patient.age or ''} {patient.age_unit or ''}".strip()
-        info_pairs = [
-            ("Lab. #", f"{patient.im_lab_number or ''}/{patient.lab_number}"),
-            ("Name", patient.name or ""),
-            ("HKID", patient.hkid or ""),
-            ("Date of Birth", _format_date(patient.dob)),
-            ("Sex", patient.sex or ""),
-            ("Age", age_display),
-            ("Ethnicity", patient.ethnicity or ""),
-            ("Specimen Collected", _format_date(patient.specimen_collected)),
-            ("Specimen Arrived", _format_date(patient.specimen_arrived)),
-        ]
-        for label, value in info_pairs:
-            p = doc.add_paragraph()
-            p.add_run(f"{label}: ").bold = True
-            p.add_run(str(value))
+        _build_demographic_table(doc, patient)
 
         # Separator
         p = doc.add_paragraph()
@@ -433,7 +514,9 @@ def create_word_document(
             p = doc.add_paragraph()
             p.add_run(f"{label}:").bold = True
             p = doc.add_paragraph()
-            p.add_run(str(value))
+            run = p.add_run(str(value))
+            if label == "SUMMARY OF RESULT(S)":
+                run.bold = True
 
         # Variant table — confirmed (C) findings
         is_trio = test_type.lower() == "trio"
@@ -494,7 +577,7 @@ def create_word_document(
                     doc.add_paragraph()
 
         # Incidental findings (I)
-        if "I" in finding_type and "A" not in finding_type:
+        if ("I" in finding_type or "N" in finding_type) and "A" not in finding_type:
             p = doc.add_paragraph()
             p.add_run("INTERPRETATION / RECOMMENDED ACTION:").bold = True
             p = doc.add_paragraph()
@@ -515,10 +598,11 @@ def create_word_document(
                 "clinically indicated."
             )
 
-        p = doc.add_paragraph()
-        run = p.add_run("APPENDIX")
-        run.underline = True
-        run.bold = True
+        if "I" in finding_type or "N" in finding_type:
+            p = doc.add_paragraph()
+            run = p.add_run("APPENDIX")
+            run.underline = True
+            run.bold = True
 
         i_variants = VariantModel.query.filter_by(
             patient_id=patient.id, reportable_variant="I"
