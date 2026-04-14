@@ -12,6 +12,49 @@ ok()    { echo -e "${GREEN}✓ $*${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $*${NC}"; }
 fail()  { echo -e "${RED}✗ $*${NC}"; exit 1; }
 
+ensure_postgres_installed() {
+  if command -v psql >/dev/null 2>&1; then
+    ok "PostgreSQL client detected"
+    return
+  fi
+
+  info "PostgreSQL not found; attempting automatic installation"
+
+  if command -v brew >/dev/null 2>&1; then
+    brew install postgresql@17 || brew install postgresql
+  elif command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y postgresql postgresql-client
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y postgresql-server postgresql
+  elif command -v yum >/dev/null 2>&1; then
+    sudo yum install -y postgresql-server postgresql
+  elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Sy --noconfirm postgresql
+  else
+    fail "No supported package manager found to install PostgreSQL automatically"
+  fi
+
+  if ! command -v psql >/dev/null 2>&1; then
+    fail "PostgreSQL installation appears incomplete (psql not found)"
+  fi
+
+  ok "PostgreSQL installation complete"
+}
+
+ensure_postgres_service_running() {
+  case "${POSTGRES_HOST}" in
+    localhost|127.0.0.1|::1) ;;
+    *) return ;;
+  esac
+
+  if command -v brew >/dev/null 2>&1; then
+    brew services start postgresql@17 >/dev/null 2>&1 || brew services start postgresql >/dev/null 2>&1 || true
+  elif command -v systemctl >/dev/null 2>&1; then
+    sudo systemctl start postgresql >/dev/null 2>&1 || sudo systemctl start postgresql-17 >/dev/null 2>&1 || true
+  fi
+}
+
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
@@ -58,6 +101,9 @@ fi
 
 if [[ "$MODE" == "setup" || ! -d "$PROJECT_DIR/.venv" || ! -d "$PROJECT_DIR/data/vcf" ]]; then
   info "Running setup"
+
+  ensure_postgres_installed
+  ensure_postgres_service_running
 
   if ! command -v node >/dev/null 2>&1; then
     fail "Node.js is required but not found"
