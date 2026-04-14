@@ -31,6 +31,21 @@ shift
 goto parse_args
 
 :done_args
+if "%PS_ARGS%"=="" (
+  echo [HA] Select mode:
+  echo [HA]   1^) setup
+  echo [HA]   2^) development
+  echo [HA]   3^) production
+  choice /C 123 /N /M "Enter choice [1-3]: "
+  if errorlevel 3 (
+    set "PS_ARGS= -Mode production"
+  ) else if errorlevel 2 (
+    set "PS_ARGS= -Mode development"
+  ) else (
+    set "PS_ARGS= -Mode setup"
+  )
+)
+
 echo [HA] Launching Windows setup/runner...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %PS_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"

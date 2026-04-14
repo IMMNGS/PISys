@@ -96,6 +96,11 @@ term_name,notes
     }
 
     Write-Ok 'Setup finished'
+
+    if ($Mode -eq 'setup') {
+        Write-Info 'Setup-only mode complete.'
+        exit 0
+    }
 }
 
 if ($Mode -eq 'production') {
