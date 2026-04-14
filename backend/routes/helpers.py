@@ -27,7 +27,7 @@ def _parse_xlsx_rows(file_storage):
     import openpyxl
 
     wb = openpyxl.load_workbook(file_storage, data_only=True)
-    ws = wb.active
+    ws = wb.worksheets[0]
     rows = list(ws.iter_rows(values_only=True))
     if len(rows) < 2:
         return []
@@ -99,7 +99,7 @@ def _parse_variant_xlsx_rows(file_storage):
     import openpyxl
 
     wb = openpyxl.load_workbook(file_storage, data_only=True)
-    ws = wb.active
+    ws = wb.worksheets[0]
     rows = list(ws.iter_rows(values_only=True))
     if len(rows) < 2:
         return []
@@ -115,17 +115,27 @@ def _parse_variant_xlsx_rows(file_storage):
         str_count = sum(1 for v in row if isinstance(v, str) and len(v) > 1)
         return str_count >= 3
 
-    if _looks_like_header(raw_headers_row0):
-        raw_headers = [str(h).strip() if h else f"col_{i}"
-                       for i, h in enumerate(raw_headers_row0)]
+    # Check both rows and see which one maps to more variant columns
+    row0_headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(raw_headers_row0)]
+    row1_headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(raw_headers_row1)] if raw_headers_row1 else []
+
+    map0 = auto_map_variant_columns(row0_headers)
+    map1 = auto_map_variant_columns(row1_headers) if row1_headers else {}
+
+    if len(map1) > len(map0) and len(map1) >= 3:
+        raw_headers = row1_headers
+        data_start = 2
+    elif len(map0) > 0 and len(map0) >= len(map1):
+        raw_headers = row0_headers
+        data_start = 1
+    elif _looks_like_header(raw_headers_row0):
+        raw_headers = row0_headers
         data_start = 1
     elif raw_headers_row1 and _looks_like_header(raw_headers_row1):
-        raw_headers = [str(h).strip() if h else f"col_{i}"
-                       for i, h in enumerate(raw_headers_row1)]
+        raw_headers = row1_headers
         data_start = 2
     else:
-        raw_headers = [str(h).strip() if h else f"col_{i}"
-                       for i, h in enumerate(raw_headers_row0)]
+        raw_headers = row0_headers
         data_start = 1
 
     # Map variant-specific column names to DB field names
