@@ -25,11 +25,16 @@ function Get-PythonCommand {
 }
 
 function Invoke-PythonCommand([string[]]$PythonCmd, [string[]]$Args) {
-    if ($PythonCmd.Count -gt 1) {
-        & $PythonCmd[0] $PythonCmd[1] @Args
-    } else {
-        & $PythonCmd[0] @Args
+    if (-not $Args -or $Args.Count -eq 0) {
+        Fail 'Internal error: Python command invoked without arguments.'
     }
+
+    $prefixArgs = @()
+    if ($PythonCmd.Count -gt 1) {
+        $prefixArgs = $PythonCmd[1..($PythonCmd.Count - 1)]
+    }
+
+    & $PythonCmd[0] @prefixArgs @Args
 }
 
 function Load-EnvFile([string]$Path) {
@@ -57,9 +62,8 @@ if (-not $PythonCmd) {
 Load-EnvFile (Join-Path $ProjectDir '.env')
 
 $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
-$FirstTimeSetup = $Mode -eq 'setup' -or -not (Test-Path (Join-Path $ProjectDir '.venv')) -or -not (Test-Path (Join-Path $ProjectDir 'data\vcf'))
 
-if ($FirstTimeSetup) {
+function Run-Setup {
     Write-Info 'Running setup...'
     Invoke-PythonCommand $PythonCmd @('--version')
 
@@ -96,11 +100,17 @@ term_name,notes
     }
 
     Write-Ok 'Setup finished'
+}
 
-    if ($Mode -eq 'setup') {
-        Write-Info 'Setup-only mode complete.'
-        exit 0
-    }
+if ($Mode -eq 'setup') {
+    Run-Setup
+    Write-Info 'Setup-only mode complete.'
+    exit 0
+}
+
+$NeedBootstrapSetup = -not (Test-Path (Join-Path $ProjectDir '.venv')) -or -not (Test-Path (Join-Path $ProjectDir 'data\vcf'))
+if ($NeedBootstrapSetup) {
+    Run-Setup
 }
 
 if ($Mode -eq 'production') {
