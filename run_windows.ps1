@@ -24,12 +24,12 @@ function Get-PythonCommand {
     return $null
 }
 
-function Invoke-PythonCommand([string[]]$Args) {
-    if (-not $Args -or $Args.Count -eq 0) {
+function Invoke-PythonCommand([string[]]$PythonArgs) {
+    if (-not $PythonArgs -or $PythonArgs.Count -eq 0) {
         Fail 'Internal error: Python command invoked without arguments.'
     }
 
-    & $script:PythonExe @script:PythonBaseArgs @Args
+    & $script:PythonExe @script:PythonBaseArgs @PythonArgs
 }
 
 function Load-EnvFile([string]$Path) {
@@ -63,14 +63,14 @@ $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
 
 function Run-Setup {
     Write-Info 'Running setup...'
-    Invoke-PythonCommand @('--version')
+    Invoke-PythonCommand -PythonArgs @('--version')
 
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
         Fail 'Node.js is required but was not found on PATH.'
     }
 
     if (-not (Test-Path $VenvPy)) {
-        Invoke-PythonCommand @('-m', 'venv', '.venv')
+        Invoke-PythonCommand -PythonArgs @('-m', 'venv', '.venv')
     }
 
     & $VenvPy -m pip install --upgrade pip
@@ -116,7 +116,7 @@ if ($Mode -eq 'production') {
     [System.Environment]::SetEnvironmentVariable('FLASK_ENV', 'production', 'Process')
 
     if (-not $env:SECRET_KEY) {
-        $secret = (Invoke-PythonCommand @('-c', "import secrets; print(secrets.token_hex(32))") | Out-String).Trim()
+        $secret = (Invoke-PythonCommand -PythonArgs @('-c', "import secrets; print(secrets.token_hex(32))") | Out-String).Trim()
         [System.Environment]::SetEnvironmentVariable('SECRET_KEY', $secret, 'Process')
         Write-Warn 'SECRET_KEY was not set. Generated one for this session.'
     }
