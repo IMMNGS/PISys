@@ -59,6 +59,13 @@ $script:PythonBaseArgs = @($PythonCommand.BaseArgs)
 
 Load-EnvFile (Join-Path $ProjectDir '.env')
 
+# MySQL defaults match backend/config.py and run.sh.
+if (-not $env:MYSQL_USER) { [System.Environment]::SetEnvironmentVariable('MYSQL_USER', 'pisys_user', 'Process') }
+if (-not $env:MYSQL_PASSWORD) { [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', '', 'Process') }
+if (-not $env:MYSQL_HOST) { [System.Environment]::SetEnvironmentVariable('MYSQL_HOST', 'localhost', 'Process') }
+if (-not $env:MYSQL_PORT) { [System.Environment]::SetEnvironmentVariable('MYSQL_PORT', '3308', 'Process') }
+if (-not $env:MYSQL_DB) { [System.Environment]::SetEnvironmentVariable('MYSQL_DB', 'pisys_db', 'Process') }
+
 $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
 
 function Run-Setup {
@@ -75,6 +82,35 @@ function Run-Setup {
 
     & $VenvPy -m pip install --upgrade pip
     & $VenvPy -m pip install -r requirements.txt
+
+    Write-Info 'Ensuring MySQL database exists (best effort)'
+    $ensureDbCode = @'
+import os
+import pymysql
+
+user = os.environ.get("MYSQL_USER", "pisys_user")
+password = os.environ.get("MYSQL_PASSWORD", "")
+host = os.environ.get("MYSQL_HOST", "localhost")
+port = int(os.environ.get("MYSQL_PORT", "3308"))
+db = os.environ.get("MYSQL_DB", "pisys_db")
+
+conn = pymysql.connect(host=host, port=port, user=user, password=password)
+try:
+    with conn.cursor() as cur:
+        cur.execute(
+            f"CREATE DATABASE IF NOT EXISTS `{db}` "
+            "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        )
+    conn.commit()
+finally:
+    conn.close()
+'@
+
+    try {
+        & $VenvPy -c $ensureDbCode
+    } catch {
+        Write-Warn 'Could not auto-create MySQL database. Verify MYSQL_HOST/MYSQL_PORT and credentials, then create DB manually if needed.'
+    }
 
     Ensure-Directory (Join-Path $ProjectDir 'data\vcf')
     Ensure-Directory (Join-Path $ProjectDir 'data\variant_uploads')
