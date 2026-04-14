@@ -8,6 +8,7 @@ import {
   upsertFreeTextTerm,
   fetchPatientOptions,
   assignTerms,
+  refreshHPOTerms,
 } from "../api/client";
 import type { DiseaseTerm } from "../types";
 import type { HPOTerm } from "../types";
@@ -240,6 +241,17 @@ export default function ManageHpo() {
     }
   };
 
+  const handleRefreshHPO = async () => {
+    if (!window.confirm("This will pull the latest HPO terms into the database. It may take a minute. Continue?")) return;
+    try {
+      const res = await refreshHPOTerms();
+      alert(`Refreshed successfully: ${res.added} added, ${res.updated} updated.`);
+      setBrowsePage(1);
+    } catch (e: any) {
+      alert("Failed to refresh HPO terms: " + (e.message || "Unknown error"));
+    }
+  };
+
   const canAssign = selectedTermIds.size > 0 && selectedPatientIds.size > 0;
 
   return (
@@ -247,6 +259,9 @@ export default function ManageHpo() {
       {/* Header */}
       <div className="flex-between mb-1">
         <h2>Manage Disease Terms</h2>
+        <button className="btn btn-sm btn-outline" onClick={handleRefreshHPO}>
+          Refresh HPO Terms
+        </button>
       </div>
       <p className="text-muted mb-2">
         Use one search to find disease terms,

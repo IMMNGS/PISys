@@ -141,6 +141,9 @@ term_name,notes
         Pop-Location
     }
 
+    Write-Info 'Seeding initial HPO terms if needed (this may take a minute)'
+    & $VenvPy (Join-Path $ProjectDir 'scripts\seed_hpo.py')
+
     Write-Ok 'Setup finished'
 }
 

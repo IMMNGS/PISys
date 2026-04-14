@@ -98,6 +98,9 @@ PY
   info "Installing frontend dependencies and building"
   (cd frontend && npm install && npm run build)
 
+  info "Seeding initial HPO terms if needed (this may take a minute)"
+  "$PYTHON" scripts/seed_hpo.py
+
   ok "Setup finished"
 fi
 
