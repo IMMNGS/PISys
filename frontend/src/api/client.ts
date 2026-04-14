@@ -636,6 +636,19 @@ export function deleteSingleton(
   });
 }
 
+// ── Trios ────────────────────────────────────────────────────────────────
+
+export function updateTrio(
+  trioId: number,
+  data: Partial<TrioInfo>,
+): Promise<TrioInfo> {
+  return json(`${BASE}/trios/${trioId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 // ── VCF Files ────────────────────────────────────────────────────────────
 
 export function fetchVcfFiles(patientId: number): Promise<VcfFileInfo[]> {

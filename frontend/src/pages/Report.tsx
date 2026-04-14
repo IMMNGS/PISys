@@ -5,11 +5,14 @@ import {
   downloadReport,
   downloadSingleGeneReport,
   fetchPatientOptions,
+  updateSingleton,
+  updateTrio,
   type ReportPreview,
 } from "../api/client";
 import SearchableSelect from "../components/SearchableSelect";
 
 type TestType = "singleton" | "trio";
+const DEFAULT_VARIANT_ROWS = 20;
 
 export default function Report() {
   const [labNumber, setLabNumber] = useState("");
@@ -20,6 +23,11 @@ export default function Report() {
   const [generatingSingleGene, setGeneratingSingleGene] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoLoadFromParams, setAutoLoadFromParams] = useState(false);
+  const [showAllVariants, setShowAllVariants] = useState(false);
+  const [editableReportableVariants, setEditableReportableVariants] = useState<
+    Record<number, string>
+  >({});
+  const [savingVariantId, setSavingVariantId] = useState<number | null>(null);
 
   const location = useLocation();
 
@@ -52,6 +60,12 @@ export default function Report() {
     try {
       const data = await fetchReportPreview(labNumber.trim(), testType);
       setPreview(data);
+      setShowAllVariants(false);
+      setEditableReportableVariants(
+        Object.fromEntries(
+          data.variants.map((v) => [v.id, v.reportable_variant ?? ""]),
+        ),
+      );
       setTestProcess(data.defaults.test_process);
       setDisclaimer(data.defaults.disclaimer);
       setReferences(data.defaults.references);
@@ -125,8 +139,49 @@ export default function Report() {
     }
   };
 
+  const handleReportableVariantSave = async (variantId: number) => {
+    const value = (editableReportableVariants[variantId] ?? "").trim();
+    setSavingVariantId(variantId);
+    setError(null);
+    try {
+      if (testType === "trio") {
+        await updateTrio(variantId, {
+          reportable_variant: value || null,
+        });
+      } else {
+        await updateSingleton(variantId, {
+          reportable_variant: value || null,
+        });
+      }
+
+      setPreview((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          variants: prev.variants.map((v) =>
+            v.id === variantId
+              ? { ...v, reportable_variant: value || null }
+              : v,
+          ),
+        };
+      });
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error
+          ? `Failed to save reportable variant: ${e.message}`
+          : "Failed to save reportable variant",
+      );
+    } finally {
+      setSavingVariantId(null);
+    }
+  };
+
   const patient = preview?.patient;
   const variants = preview?.variants ?? [];
+  const visibleVariants = showAllVariants
+    ? variants
+    : variants.slice(0, DEFAULT_VARIANT_ROWS);
+  const hasMoreVariants = variants.length > DEFAULT_VARIANT_ROWS;
 
   // Build sex/age display
   const sexAge = patient
@@ -259,6 +314,19 @@ export default function Report() {
               Result ({testType === "trio" ? "Trio" : "Singleton"} —{" "}
               {variants.length} variant{variants.length !== 1 ? "s" : ""})
             </div>
+            <div className="card-body" style={{ paddingBottom: 0 }}>
+              {hasMoreVariants && (
+                <button
+                  className="btn btn-outline"
+                  onClick={() => setShowAllVariants((prev) => !prev)}
+                  style={{ marginBottom: "0.75rem" }}
+                >
+                  {showAllVariants
+                    ? `Show first ${DEFAULT_VARIANT_ROWS}`
+                    : `Show all (${variants.length})`}
+                </button>
+              )}
+            </div>
             <div
               className="card-body"
               style={{ padding: 0, overflowX: "auto" }}
@@ -268,6 +336,7 @@ export default function Report() {
                   <tr>
                     <th>Gene Name / OMIM</th>
                     <th>Transcript / Variant (HGVS)</th>
+                    <th>Reportable Variant</th>
                     <th>Exon</th>
                     <th>Zygosity</th>
                     <th>Inheritance</th>
@@ -283,7 +352,7 @@ export default function Report() {
                   {variants.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={11}
+                        colSpan={12}
                         className="text-muted"
                         style={{ textAlign: "center" }}
                       >
@@ -291,7 +360,7 @@ export default function Report() {
                       </td>
                     </tr>
                   ) : (
-                    variants.map((v) => {
+                    visibleVariants.map((v) => {
                       const geneOmim = [v.gene_names, v.omim_id]
                         .filter(Boolean)
                         .join(" / ");
@@ -305,6 +374,30 @@ export default function Report() {
                         <tr key={v.id}>
                           <td>{geneOmim || "—"}</td>
                           <td>{hgvs || "—"}</td>
+                          <td>
+                            <input
+                              type="text"
+                              className="form-control"
+                              value={editableReportableVariants[v.id] ?? ""}
+                              onChange={(e) =>
+                                setEditableReportableVariants((prev) => ({
+                                  ...prev,
+                                  [v.id]: e.target.value,
+                                }))
+                              }
+                              onBlur={() => {
+                                const original = v.reportable_variant ?? "";
+                                const edited =
+                                  editableReportableVariants[v.id] ?? "";
+                                if (edited !== original) {
+                                  handleReportableVariantSave(v.id);
+                                }
+                              }}
+                              disabled={savingVariantId === v.id}
+                              placeholder="e.g. C / A / I / N"
+                              style={{ minWidth: "9rem" }}
+                            />
+                          </td>
                           <td>{v.exon_number || "—"}</td>
                           <td>{v.zygosity || "—"}</td>
                           <td>{v.inheritance || "—"}</td>
