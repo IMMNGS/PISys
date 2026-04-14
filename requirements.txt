@@ -3,7 +3,7 @@ pyhpo
 flask
 flask-sqlalchemy
 flask-cors
-psycopg2-binary
+pymysql
 cryptography
 openpyxl
 python-docx

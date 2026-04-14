@@ -12,183 +12,6 @@ ok()    { echo -e "${GREEN}✓ $*${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $*${NC}"; }
 fail()  { echo -e "${RED}✗ $*${NC}"; exit 1; }
 
-ensure_non_admin_app_role() {
-  local lowered_user
-  lowered_user="$(printf "%s" "$POSTGRES_USER" | tr '[:upper:]' '[:lower:]')"
-  if [[ "$lowered_user" == "postgres" ]]; then
-    fail "POSTGRES_USER must be a dedicated app role (e.g. pisysdb), not 'postgres'."
-  fi
-}
-
-escape_sql_literal() {
-  printf "%s" "$1" | sed "s/'/''/g"
-}
-
-escape_sql_identifier() {
-  printf "%s" "$1" | sed 's/"/""/g'
-}
-
-read_required_secret() {
-  local prompt="$1"
-  local value=""
-  while true; do
-    read -r -s -p "$prompt: " value
-    echo
-    if [[ -n "$value" ]]; then
-      printf "%s" "$value"
-      return
-    fi
-    warn "A non-empty password is required for setup"
-  done
-}
-
-psql_with_password() {
-  local password="$1"
-  shift
-  PGPASSWORD="$password" psql "$@"
-}
-
-psql_can_login() {
-  local user="$1"
-  local password="$2"
-
-  psql_with_password "$password" \
-    -h "$POSTGRES_HOST" \
-    -p "$POSTGRES_PORT" \
-    -U "$user" \
-    -d postgres \
-    -tAc "SELECT 1;" >/dev/null 2>&1
-}
-
-ensure_postgres_role_for_setup() {
-  ensure_non_admin_app_role
-
-  case "${POSTGRES_HOST}" in
-    localhost|127.0.0.1|::1) ;;
-    *)
-      warn "Skipping PostgreSQL role bootstrap for non-local host ${POSTGRES_HOST}"
-      return
-      ;;
-  esac
-
-  if [[ -z "${POSTGRES_PASSWORD}" ]]; then
-    if [[ -t 0 ]]; then
-      POSTGRES_PASSWORD="$(read_required_secret "Enter NEW PostgreSQL password for user '${POSTGRES_USER}'")"
-      export POSTGRES_PASSWORD
-    else
-      fail "POSTGRES_PASSWORD is empty; set it in .env for non-interactive setup"
-    fi
-  fi
-
-  if psql_can_login "$POSTGRES_USER" "$POSTGRES_PASSWORD"; then
-    ok "PostgreSQL credentials for '${POSTGRES_USER}' are valid"
-    return
-  fi
-
-  warn "Could not authenticate as '${POSTGRES_USER}'. Bootstrapping role/password via admin account"
-
-  local admin_user="${POSTGRES_ADMIN_USER:-postgres}"
-  local admin_password="${POSTGRES_ADMIN_PASSWORD:-}"
-  local admin_ready=false
-
-  if [[ -n "$admin_password" ]] && psql_can_login "$admin_user" "$admin_password"; then
-    admin_ready=true
-  fi
-
-  if [[ "$admin_ready" == false && -t 0 ]]; then
-    local attempt
-    for attempt in 1 2 3; do
-      admin_password="$(read_required_secret "Enter CURRENT PostgreSQL password for admin user '${admin_user}'")"
-      if psql_can_login "$admin_user" "$admin_password"; then
-        admin_ready=true
-        break
-      fi
-      warn "Admin authentication failed (attempt ${attempt}/3)"
-    done
-  fi
-
-  if [[ "$admin_ready" == false ]]; then
-    fail "Unable to authenticate as PostgreSQL admin '${admin_user}'. Set POSTGRES_ADMIN_USER/POSTGRES_ADMIN_PASSWORD and rerun setup."
-  fi
-
-  local escaped_user
-  local escaped_password
-  escaped_user="$(escape_sql_identifier "$POSTGRES_USER")"
-  escaped_password="$(escape_sql_literal "$POSTGRES_PASSWORD")"
-
-  local bootstrap_sql
-  bootstrap_sql=$(cat <<SQL
-DO
-\$\$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${POSTGRES_USER}') THEN
-    EXECUTE 'CREATE ROLE "${escaped_user}" LOGIN PASSWORD ''${escaped_password}''';
-  ELSE
-    EXECUTE 'ALTER ROLE "${escaped_user}" WITH LOGIN PASSWORD ''${escaped_password}''';
-  END IF;
-END
-\$\$;
-SQL
-)
-
-  psql_with_password "$admin_password" \
-    -h "$POSTGRES_HOST" \
-    -p "$POSTGRES_PORT" \
-    -U "$admin_user" \
-    -d postgres \
-    -v ON_ERROR_STOP=1 \
-    -c "$bootstrap_sql" >/dev/null
-
-  if ! psql_can_login "$POSTGRES_USER" "$POSTGRES_PASSWORD"; then
-    fail "PostgreSQL role bootstrap ran, but login still failed for '${POSTGRES_USER}'"
-  fi
-
-  ok "PostgreSQL role '${POSTGRES_USER}' is ready for setup"
-}
-
-ensure_postgres_installed() {
-  if command -v psql >/dev/null 2>&1; then
-    ok "PostgreSQL client detected"
-    return
-  fi
-
-  info "PostgreSQL not found; attempting automatic installation"
-
-  if command -v brew >/dev/null 2>&1; then
-    brew install postgresql@18 || brew install postgresql
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo apt-get install -y postgresql postgresql-client
-  elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y postgresql18-server postgresql18 || sudo dnf install -y postgresql-server postgresql
-  elif command -v yum >/dev/null 2>&1; then
-    sudo yum install -y postgresql18-server postgresql18 || sudo yum install -y postgresql-server postgresql
-  elif command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Sy --noconfirm postgresql
-  else
-    fail "No supported package manager found to install PostgreSQL automatically"
-  fi
-
-  if ! command -v psql >/dev/null 2>&1; then
-    fail "PostgreSQL installation appears incomplete (psql not found)"
-  fi
-
-  ok "PostgreSQL installation complete"
-}
-
-ensure_postgres_service_running() {
-  case "${POSTGRES_HOST}" in
-    localhost|127.0.0.1|::1) ;;
-    *) return ;;
-  esac
-
-  if command -v brew >/dev/null 2>&1; then
-    brew services start postgresql@18 >/dev/null 2>&1 || brew services start postgresql >/dev/null 2>&1 || true
-  elif command -v systemctl >/dev/null 2>&1; then
-    sudo systemctl start postgresql-18 >/dev/null 2>&1 || sudo systemctl start postgresql >/dev/null 2>&1 || sudo systemctl start postgresql-17 >/dev/null 2>&1 || true
-  fi
-}
-
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
@@ -217,15 +40,13 @@ for arg in "$@"; do
   esac
 done
 
-POSTGRES_USER="${POSTGRES_USER:-${MYSQL_USER:-pisysdb}}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-${MYSQL_PASSWORD:-}}"
-POSTGRES_HOST="${POSTGRES_HOST:-${MYSQL_HOST:-localhost}}"
-POSTGRES_PORT="${POSTGRES_PORT:-${MYSQL_PORT:-5432}}"
-POSTGRES_DB="${POSTGRES_DB:-${MYSQL_DB:-pisys_db}}"
+MYSQL_USER="${MYSQL_USER:-${POSTGRES_USER:-root}}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-${POSTGRES_PASSWORD:-password}}"
+MYSQL_HOST="${MYSQL_HOST:-${POSTGRES_HOST:-localhost}}"
+MYSQL_PORT="${MYSQL_PORT:-${POSTGRES_PORT:-3306}}"
+MYSQL_DB="${MYSQL_DB:-${POSTGRES_DB:-pisys_db}}"
 
-export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_HOST POSTGRES_PORT POSTGRES_DB
-
-ensure_non_admin_app_role
+export MYSQL_USER MYSQL_PASSWORD MYSQL_HOST MYSQL_PORT MYSQL_DB
 
 if command -v python3 >/dev/null 2>&1; then
   PYTHON=python3
@@ -237,10 +58,6 @@ fi
 
 if [[ "$MODE" == "setup" || ! -d "$PROJECT_DIR/.venv" || ! -d "$PROJECT_DIR/data/vcf" ]]; then
   info "Running setup"
-
-  ensure_postgres_installed
-  ensure_postgres_service_running
-  ensure_postgres_role_for_setup
 
   if ! command -v node >/dev/null 2>&1; then
     fail "Node.js is required but not found"
@@ -270,7 +87,7 @@ term_name,notes
 CSV
   fi
 
-  info "Ensuring PostgreSQL database exists"
+  info "Ensuring MySQL database exists"
   "$PYTHON" - <<'PY' || true
 from backend.app import _ensure_databases
 from backend.config import DevelopmentConfig

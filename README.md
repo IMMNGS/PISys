@@ -18,7 +18,7 @@ cd frontend && npm install
 ```
 
 4. Configure `.env` using `.env.example`.
-   - Database defaults are PostgreSQL (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`).
+   - Database defaults are MySQL (`MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB`).
 
 ## Run
 

@@ -361,29 +361,27 @@ $script:PythonBaseArgs = @($PythonCommand.BaseArgs)
 
 Load-EnvFile (Join-Path $ProjectDir '.env')
 
-# PostgreSQL defaults match backend/config.py and run.sh.
-if (-not $env:POSTGRES_USER) {
-    if ($env:MYSQL_USER) { [System.Environment]::SetEnvironmentVariable('POSTGRES_USER', $env:MYSQL_USER, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('POSTGRES_USER', 'pisysdb', 'Process') }
+# MySQL defaults match backend/config.py and run.sh.
+if (-not $env:MYSQL_USER) {
+    if ($env:POSTGRES_USER) { [System.Environment]::SetEnvironmentVariable('MYSQL_USER', $env:POSTGRES_USER, 'Process') }
+    else { [System.Environment]::SetEnvironmentVariable('MYSQL_USER', 'root', 'Process') }
 }
-if (-not $env:POSTGRES_PASSWORD) {
-    if ($env:MYSQL_PASSWORD) { [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $env:MYSQL_PASSWORD, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', '', 'Process') }
+if (-not $env:MYSQL_PASSWORD) {
+    if ($env:POSTGRES_PASSWORD) { [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', $env:POSTGRES_PASSWORD, 'Process') }
+    else { [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', 'password', 'Process') }
 }
-if (-not $env:POSTGRES_HOST) {
-    if ($env:MYSQL_HOST) { [System.Environment]::SetEnvironmentVariable('POSTGRES_HOST', $env:MYSQL_HOST, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('POSTGRES_HOST', 'localhost', 'Process') }
+if (-not $env:MYSQL_HOST) {
+    if ($env:POSTGRES_HOST) { [System.Environment]::SetEnvironmentVariable('MYSQL_HOST', $env:POSTGRES_HOST, 'Process') }
+    else { [System.Environment]::SetEnvironmentVariable('MYSQL_HOST', 'localhost', 'Process') }
 }
-if (-not $env:POSTGRES_PORT) {
-    if ($env:MYSQL_PORT) { [System.Environment]::SetEnvironmentVariable('POSTGRES_PORT', $env:MYSQL_PORT, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('POSTGRES_PORT', '5432', 'Process') }
+if (-not $env:MYSQL_PORT) {
+    if ($env:POSTGRES_PORT) { [System.Environment]::SetEnvironmentVariable('MYSQL_PORT', $env:POSTGRES_PORT, 'Process') }
+    else { [System.Environment]::SetEnvironmentVariable('MYSQL_PORT', '3306', 'Process') }
 }
-if (-not $env:POSTGRES_DB) {
-    if ($env:MYSQL_DB) { [System.Environment]::SetEnvironmentVariable('POSTGRES_DB', $env:MYSQL_DB, 'Process') }
-    else { [System.Environment]::SetEnvironmentVariable('POSTGRES_DB', 'pisys_db', 'Process') }
+if (-not $env:MYSQL_DB) {
+    if ($env:POSTGRES_DB) { [System.Environment]::SetEnvironmentVariable('MYSQL_DB', $env:POSTGRES_DB, 'Process') }
+    else { [System.Environment]::SetEnvironmentVariable('MYSQL_DB', 'pisys_db', 'Process') }
 }
-
-Ensure-NonAdminAppRole
 
 $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
 
@@ -395,10 +393,6 @@ function Run-Setup {
         Fail 'Node.js is required but was not found on PATH.'
     }
 
-    Ensure-PostgresInstalled
-    Ensure-PostgresServiceRunning
-    Ensure-PostgresRoleForSetup
-
     if (-not (Test-Path $VenvPy)) {
         Invoke-PythonCommand -PythonArgs @('-m', 'venv', '.venv')
     }
@@ -406,7 +400,7 @@ function Run-Setup {
     & $VenvPy -m pip install --upgrade pip
     & $VenvPy -m pip install -r requirements.txt
 
-    Write-Info 'Ensuring PostgreSQL database exists'
+    Write-Info 'Ensuring MySQL database exists'
     $ensureDbCode = @'
 from backend.app import _ensure_databases
 from backend.config import DevelopmentConfig
@@ -417,7 +411,7 @@ _ensure_databases(DevelopmentConfig)
     try {
         & $VenvPy -c $ensureDbCode
     } catch {
-        Write-Warn 'Could not auto-create PostgreSQL database. Verify POSTGRES_HOST/POSTGRES_PORT and credentials, then create DB manually if needed.'
+        Write-Warn 'Could not auto-create MySQL database. Verify MYSQL_HOST/MYSQL_PORT and credentials, then create DB manually if needed.'
     }
 
     Ensure-Directory (Join-Path $ProjectDir 'data\vcf')
