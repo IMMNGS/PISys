@@ -209,6 +209,16 @@ def normalize_variant_row(row, fields):
     elif normalized.get("omimid") and not normalized.get("omim_id"):
         normalized["omim_id"] = normalized["omimid"]
 
+    # Deduplicate and truncate omimid and omim_id to fit in 50 chars
+    for omim_field in ["omim_id", "omimid"]:
+        if normalized.get(omim_field):
+            # Split by comma, strip whitespace, remove empty, and deduplicate while maintaining order
+            parts = [p.strip() for p in normalized[omim_field].split(",") if p.strip()]
+            seen = set()
+            deduped = [p for p in parts if not (p in seen or seen.add(p))]
+            joined = ",".join(deduped)
+            normalized[omim_field] = joined[:50]
+
     return normalized
 
 
