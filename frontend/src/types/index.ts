@@ -111,34 +111,3 @@ export interface HPOTermPage {
   page: number;
   pages: number;
 }
-
-export interface LocalLlmMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-export interface LocalLlmChatResponse {
-  model: string;
-  reply: string;
-  cached?: boolean;
-  raw?: unknown;
-  citations?: Array<{
-    type: string;
-    label: string;
-    fields: Record<string, unknown>;
-  }>;
-  retrieved_context?: string;
-}
-
-export interface LocalLlmModelOption {
-  filename: string;
-  label: string;
-  path: string;
-  is_default: boolean;
-}
-
-export interface LocalLlmModelsResponse {
-  provider?: string;
-  models: LocalLlmModelOption[];
-  selected: string;
-}

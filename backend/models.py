@@ -339,32 +339,6 @@ class VariantUpload(db.Model):
         }
 
 
-class LocalLlmCache(db.Model):
-    """Caches local LLM responses in the existing MySQL database."""
-    __tablename__ = "local_llm_cache"
-
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    cache_key = db.Column(db.String(64), unique=True, nullable=False, index=True)
-    provider = db.Column(db.String(50), nullable=False)
-    model = db.Column(db.String(255), nullable=False)
-    payload_json = db.Column(db.Text, nullable=False)
-    response_json = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    expires_at = db.Column(db.DateTime, nullable=False, index=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "cache_key": self.cache_key,
-            "provider": self.provider,
-            "model": self.model,
-            "payload_json": self.payload_json,
-            "response_json": self.response_json,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
-        }
-
-
 class AuthUser(db.Model):
     """Application user account used for login and role checks."""
     __tablename__ = "auth_users"

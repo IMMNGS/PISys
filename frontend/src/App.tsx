@@ -16,7 +16,6 @@ import ManageHpo from "./pages/ManageHpo";
 import Upload from "./pages/Upload";
 import Report from "./pages/Report";
 import DescriptiveStats from "./pages/DescriptiveStats";
-import Assistant from "./pages/Assistant";
 import Login from "./pages/Login";
 import AdminAudit from "./pages/AdminAudit";
 
@@ -72,11 +71,6 @@ export default function App() {
               <Route path="/report" element={<Report />} />
               <Route path="/manage-hpo" element={<ManageHpo />} />
               <Route path="/stats" element={<DescriptiveStats />} />
-              <Route path="/assistant" element={<Assistant />} />
-              <Route
-                path="/llm"
-                element={<Navigate to="/assistant" replace />}
-              />
               <Route element={<AdminGate />}>
                 <Route path="/admin" element={<AdminAudit />} />
               </Route>

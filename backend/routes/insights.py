@@ -15,8 +15,6 @@ from backend.models import HPOTerm, Patient, Singleton, Trio, VcfFile
 
 insights_bp = Blueprint("insights", __name__)
 
-# TODO(local-llm): Add optional on-device model adapter (e.g. Ollama/llama.cpp)
-# and keep this endpoint local-only by validating model host/path is loopback/local.
 # TODO(caching): Add response cache table keyed by (kind, query) to reduce repeat work.
 # TODO(guardrails): Add PHI-safe request/response logging controls and retention settings.
 

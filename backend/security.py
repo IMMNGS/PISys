@@ -176,9 +176,6 @@ def _safe_target_from_request() -> str:
     if path.startswith("/api/upload"):
         return "upload"
 
-    if path.startswith("/api/local-llm"):
-        return "local_llm"
-
     if path.startswith("/api/admin/"):
         return path.removeprefix("/api/admin/") or "admin"
 

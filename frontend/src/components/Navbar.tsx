@@ -31,9 +31,6 @@ export default function Navbar() {
           <li>
             <NavLink to="/stats">Descriptive Stats</NavLink>
           </li>
-          <li>
-            <NavLink to="/assistant">AI Assistant</NavLink>
-          </li>
           {isAdmin && (
             <li>
               <NavLink to="/admin">Admin</NavLink>

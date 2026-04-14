@@ -6,9 +6,6 @@ import type {
   SingletonInfo,
   TrioInfo,
   VcfFileInfo,
-  LocalLlmMessage,
-  LocalLlmChatResponse,
-  LocalLlmModelsResponse,
 } from "../types";
 
 const BASE = "/api";
@@ -484,48 +481,6 @@ export async function explainEntity(
     );
   }
   return res.json();
-}
-
-export async function sendLocalLlmChat(params: {
-  messages: LocalLlmMessage[];
-  model?: string;
-  temperature?: number;
-  top_p?: number;
-  max_tokens?: number;
-  citations?: Array<{
-    type: string;
-    label: string;
-    fields: Record<string, unknown>;
-  }>;
-  retrieved_context?: string;
-}): Promise<LocalLlmChatResponse> {
-  const res = await request(`${BASE}/local-llm/chat`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      (err as { details?: string; error?: string }).details ||
-        (err as { error?: string }).error ||
-        `${res.status} ${res.statusText}`,
-    );
-  }
-  const data = await res.json();
-  return {
-    model: data.model,
-    reply: data.reply,
-    cached: data.cached,
-    raw: data.raw,
-    citations: data.citations,
-    retrieved_context: data.retrieved_context,
-  };
-}
-
-export function fetchLocalLlmModels(): Promise<LocalLlmModelsResponse> {
-  return json(`${BASE}/local-llm/models`);
 }
 
 export function fetchFilterOptions(): Promise<FilterOptions> {

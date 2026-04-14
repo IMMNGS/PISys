@@ -18,15 +18,13 @@ if /I "%~1"=="setup" (
   set "PS_ARGS=%PS_ARGS% -Mode development"
 ) else if /I "%~1"=="production" (
   set "PS_ARGS=%PS_ARGS% -Mode production"
-) else if /I "%~1"=="--no-ai" (
-  set "PS_ARGS=%PS_ARGS% -NoAi"
 ) else if /I "%~1"=="-h" (
   set "PS_ARGS=%PS_ARGS% -?"
 ) else if /I "%~1"=="--help" (
   set "PS_ARGS=%PS_ARGS% -?"
 ) else (
   echo [HA] Unknown argument: %~1
-  echo [HA] Usage: run_windows.bat [setup^|development^|production] [--no-ai]
+  echo [HA] Usage: run_windows.bat [setup^|development^|production]
   exit /b 2
 )
 shift
