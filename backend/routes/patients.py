@@ -3,7 +3,7 @@
 import gzip
 import io
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from flask import Blueprint, abort, jsonify, request, current_app, send_file
 
@@ -26,6 +26,32 @@ patients_bp = Blueprint("patients", __name__)
 _FULL = dict(include_hpo=True, include_singletons=True,
              include_trios=True, include_vcf_files=True,
              include_disease_terms=True)
+
+
+def _coerce_patient_date(value):
+    """Normalize patient date-like input to ``date`` or ``None``.
+
+    XLSX uploads can contain notes/comments in date columns. Treat any
+    non-date or unparseable value as null so import remains resilient.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+
+    return None
 
 
 def _extract_variant_keys_from_vcf(path):
@@ -207,12 +233,8 @@ def create_patient():
     for field in PATIENT_FIELDS:
         if field != "lab_number" and field in data:
             value = data[field]
-            if field in DATE_FIELDS and isinstance(value, str):
-                try:
-                    from datetime import date as _date
-                    value = _date.fromisoformat(value[:10])
-                except ValueError:
-                    pass
+            if field in DATE_FIELDS:
+                value = _coerce_patient_date(value)
             setattr(patient, field, value)
     db.session.add(patient)
     db.session.commit()
@@ -293,14 +315,13 @@ def upload_patients_xlsx():
             if field == "lab_number":
                 continue
             val = row.get(field)
+            if field in DATE_FIELDS:
+                val = _coerce_patient_date(val)
+                if val is None:
+                    continue
+
             if val is None or (isinstance(val, str) and val.strip() == ""):
                 continue
-            if field in DATE_FIELDS and isinstance(val, str):
-                try:
-                    from datetime import date as _date
-                    val = _date.fromisoformat(val)
-                except ValueError:
-                    pass
             setattr(patient, field, val)
 
         db.session.add(patient)
