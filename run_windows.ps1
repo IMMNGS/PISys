@@ -49,6 +49,67 @@ function Ensure-Directory([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
+function Add-PostgresBinToPath {
+    $pgRoot = 'C:\Program Files\PostgreSQL'
+    if (-not (Test-Path $pgRoot)) { return }
+
+    $binDirs = Get-ChildItem -Path $pgRoot -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        ForEach-Object { Join-Path $_.FullName 'bin' } |
+        Where-Object { Test-Path $_ }
+
+    foreach ($binDir in $binDirs) {
+        if ($env:Path -notlike "*$binDir*") {
+            $env:Path = "$binDir;$env:Path"
+        }
+    }
+}
+
+function Ensure-PostgresInstalled {
+    if (Get-Command psql -ErrorAction SilentlyContinue) {
+        Write-Ok 'PostgreSQL client detected.'
+        return
+    }
+
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Fail 'PostgreSQL is not installed and winget is unavailable. Install PostgreSQL manually, then rerun setup.'
+    }
+
+    Write-Info 'PostgreSQL not found. Installing via winget (this may prompt for elevation)...'
+    & winget install --id PostgreSQL.PostgreSQL --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+
+    Add-PostgresBinToPath
+
+    if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
+        Fail 'PostgreSQL installation did not complete successfully. Install PostgreSQL manually, then rerun setup.'
+    }
+
+    Write-Ok 'PostgreSQL installation complete.'
+}
+
+function Ensure-PostgresServiceRunning {
+    # Only attempt local service checks when using localhost/loopback.
+    $isLocalHost = $env:POSTGRES_HOST -in @('localhost', '127.0.0.1', '::1')
+    if (-not $isLocalHost) { return }
+
+    $services = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
+    if (-not $services) {
+        Write-Warn 'No PostgreSQL Windows service found. Verify your PostgreSQL installation.'
+        return
+    }
+
+    foreach ($svc in $services) {
+        if ($svc.Status -ne 'Running') {
+            try {
+                Write-Info "Starting service $($svc.Name)..."
+                Start-Service -Name $svc.Name -ErrorAction Stop
+            } catch {
+                Write-Warn "Could not start service $($svc.Name). Try running setup as Administrator."
+            }
+        }
+    }
+}
+
 $PythonCommand = Get-PythonCommand
 if (-not $PythonCommand) {
     Fail 'Python 3 was not found on PATH. Install Python 3.9+ and try again.'
@@ -90,6 +151,9 @@ function Run-Setup {
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
         Fail 'Node.js is required but was not found on PATH.'
     }
+
+    Ensure-PostgresInstalled
+    Ensure-PostgresServiceRunning
 
     if (-not (Test-Path $VenvPy)) {
         Invoke-PythonCommand -PythonArgs @('-m', 'venv', '.venv')
