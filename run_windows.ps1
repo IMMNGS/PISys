@@ -83,27 +83,12 @@ function Run-Setup {
     & $VenvPy -m pip install --upgrade pip
     & $VenvPy -m pip install -r requirements.txt
 
-    Write-Info 'Ensuring MySQL database exists (best effort)'
+    Write-Info 'Ensuring MySQL database exists'
     $ensureDbCode = @'
-import os
-import pymysql
+from backend.app import _ensure_databases
+from backend.config import DevelopmentConfig
 
-user = os.environ.get("MYSQL_USER", "pisys_user")
-password = os.environ.get("MYSQL_PASSWORD", "")
-host = os.environ.get("MYSQL_HOST", "localhost")
-port = int(os.environ.get("MYSQL_PORT", "3308"))
-db = os.environ.get("MYSQL_DB", "pisys_db")
-
-conn = pymysql.connect(host=host, port=port, user=user, password=password)
-try:
-    with conn.cursor() as cur:
-        cur.execute(
-            f"CREATE DATABASE IF NOT EXISTS `{db}` "
-            "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-        )
-    conn.commit()
-finally:
-    conn.close()
+_ensure_databases(DevelopmentConfig)
 '@
 
     try {
