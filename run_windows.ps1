@@ -206,11 +206,39 @@ function Escape-SqlIdentifier([string]$Value) {
     return $Value.Replace('"', '""')
 }
 
+function Resolve-PsqlExe {
+    Add-PostgresBinToPath
+
+    $cmd = Get-Command psql -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    $pgRoot = 'C:\Program Files\PostgreSQL'
+    if (Test-Path $pgRoot) {
+        $psqlExe = Get-ChildItem -Path $pgRoot -Filter psql.exe -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($psqlExe) {
+            return $psqlExe.FullName
+        }
+    }
+
+    return $null
+}
+
 function Invoke-PsqlCommand([string]$Password, [string[]]$Args) {
+    if (-not $script:PsqlExe) {
+        $script:PsqlExe = Resolve-PsqlExe
+    }
+    if (-not $script:PsqlExe) {
+        Fail 'psql command not found after PostgreSQL installation. Cannot reset postgres password automatically.'
+    }
+
     $oldPgPassword = $env:PGPASSWORD
     [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $Password, 'Process')
     try {
-        & psql @Args
+        & $script:PsqlExe @Args
     } finally {
         if ($null -eq $oldPgPassword) {
             [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $null, 'Process')
@@ -221,7 +249,8 @@ function Invoke-PsqlCommand([string]$Password, [string[]]$Args) {
 }
 
 function Reset-PostgresPasswordForSetup {
-    if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
+    $script:PsqlExe = Resolve-PsqlExe
+    if (-not $script:PsqlExe) {
         Fail 'psql command not found after PostgreSQL installation. Cannot reset postgres password automatically.'
     }
 
@@ -300,10 +329,9 @@ function Run-Setup {
         Fail 'Node.js is required but was not found on PATH.'
     }
 
-    Ensure-PostgresPasswordForSetup
-
     Ensure-PostgresInstalled
     Ensure-PostgresServiceRunning
+    Ensure-PostgresPasswordForSetup
 
     if (-not (Test-Path $VenvPy)) {
         Invoke-PythonCommand -PythonArgs @('-m', 'venv', '.venv')
