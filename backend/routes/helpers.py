@@ -122,9 +122,19 @@ def _parse_variant_xlsx_rows(file_storage):
     map0 = auto_map_variant_columns(row0_headers)
     map1 = auto_map_variant_columns(row1_headers) if row1_headers else {}
 
+    section_metadata = {}
+    
     if len(map1) > len(map0) and len(map1) >= 3:
         raw_headers = row1_headers
         data_start = 2
+        # Extract section metadata from row 0
+        current_section = None
+        for i, val in enumerate(raw_headers_row0):
+            if val and isinstance(val, str) and val.strip():
+                current_section = val.strip()
+            if current_section:
+                # Store the section mapping for this column index
+                section_metadata[i] = current_section
     elif len(map0) > 0 and len(map0) >= len(map1):
         raw_headers = row0_headers
         data_start = 1
@@ -134,6 +144,13 @@ def _parse_variant_xlsx_rows(file_storage):
     elif raw_headers_row1 and _looks_like_header(raw_headers_row1):
         raw_headers = row1_headers
         data_start = 2
+        # Extract section metadata from row 0
+        current_section = None
+        for i, val in enumerate(raw_headers_row0):
+            if val and isinstance(val, str) and val.strip():
+                current_section = val.strip()
+            if current_section:
+                section_metadata[i] = current_section
     else:
         raw_headers = row0_headers
         data_start = 1
@@ -151,8 +168,36 @@ def _parse_variant_xlsx_rows(file_storage):
     result = []
     for row in rows[data_start:]:
         d = {}
-        for h, v in zip(headers, row):
-            d[h] = v
+        for i, (h, v) in enumerate(zip(headers, row)):
+            sec = section_metadata.get(i)
+            # Create a unique key if this header already exists in d
+            key = h
+            if key in d:
+                if sec:
+                    # Prefix with section if possible
+                    proposed = f"{sec}_{h}"
+                    # Ensure proposed is also unique
+                    suffix = 1
+                    while proposed in d:
+                        proposed = f"{sec}_{h}_{suffix}"
+                        suffix += 1
+                    key = proposed
+                else:
+                    # Make it unique by adding suffix
+                    suffix = 1
+                    proposed = f"{h}_{suffix}"
+                    while proposed in d:
+                        suffix += 1
+                        proposed = f"{h}_{suffix}"
+                    key = proposed
+            
+            # If we have a section but it's not a standard mapped field, 
+            # and it's not already in d, let's prefix it to be safe,
+            # so custom columns reflect their section. (Optional, but user said "for singleton another section that is needed is the lab number")
+            if sec and h not in mapping.values() and key == h:
+                key = f"{sec}_{h}"
+
+            d[key] = v
         result.append(d)
     return result
 
