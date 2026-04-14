@@ -143,7 +143,11 @@ export default function Report() {
     variantId: number,
     nextValue?: string,
   ) => {
-    const value = (nextValue ?? editableReportableVariants[variantId] ?? "").trim();
+    const value = (
+      nextValue ??
+      editableReportableVariants[variantId] ??
+      ""
+    ).trim();
     setSavingVariantId(variantId);
     setError(null);
     try {
