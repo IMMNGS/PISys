@@ -18,23 +18,18 @@ function Fail($Message) {
 }
 
 function Get-PythonCommand {
-    if (Get-Command py -ErrorAction SilentlyContinue) { return @('py', '-3') }
-    if (Get-Command python3 -ErrorAction SilentlyContinue) { return @('python3') }
-    if (Get-Command python -ErrorAction SilentlyContinue) { return @('python') }
+    if (Get-Command py -ErrorAction SilentlyContinue) { return @{ Exe = 'py'; BaseArgs = @('-3') } }
+    if (Get-Command python3 -ErrorAction SilentlyContinue) { return @{ Exe = 'python3'; BaseArgs = @() } }
+    if (Get-Command python -ErrorAction SilentlyContinue) { return @{ Exe = 'python'; BaseArgs = @() } }
     return $null
 }
 
-function Invoke-PythonCommand([string[]]$PythonCmd, [string[]]$Args) {
+function Invoke-PythonCommand([string[]]$Args) {
     if (-not $Args -or $Args.Count -eq 0) {
         Fail 'Internal error: Python command invoked without arguments.'
     }
 
-    $prefixArgs = @()
-    if ($PythonCmd.Count -gt 1) {
-        $prefixArgs = $PythonCmd[1..($PythonCmd.Count - 1)]
-    }
-
-    & $PythonCmd[0] @prefixArgs @Args
+    & $script:PythonExe @script:PythonBaseArgs @Args
 }
 
 function Load-EnvFile([string]$Path) {
@@ -54,10 +49,13 @@ function Ensure-Directory([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
-$PythonCmd = Get-PythonCommand
-if (-not $PythonCmd) {
+$PythonCommand = Get-PythonCommand
+if (-not $PythonCommand) {
     Fail 'Python 3 was not found on PATH. Install Python 3.9+ and try again.'
 }
+
+$script:PythonExe = [string]$PythonCommand.Exe
+$script:PythonBaseArgs = @($PythonCommand.BaseArgs)
 
 Load-EnvFile (Join-Path $ProjectDir '.env')
 
@@ -65,14 +63,14 @@ $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
 
 function Run-Setup {
     Write-Info 'Running setup...'
-    Invoke-PythonCommand $PythonCmd @('--version')
+    Invoke-PythonCommand @('--version')
 
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
         Fail 'Node.js is required but was not found on PATH.'
     }
 
     if (-not (Test-Path $VenvPy)) {
-        Invoke-PythonCommand $PythonCmd @('-m', 'venv', '.venv')
+        Invoke-PythonCommand @('-m', 'venv', '.venv')
     }
 
     & $VenvPy -m pip install --upgrade pip
@@ -118,7 +116,7 @@ if ($Mode -eq 'production') {
     [System.Environment]::SetEnvironmentVariable('FLASK_ENV', 'production', 'Process')
 
     if (-not $env:SECRET_KEY) {
-        $secret = (Invoke-PythonCommand $PythonCmd @('-c', "import secrets; print(secrets.token_hex(32))") | Out-String).Trim()
+        $secret = (Invoke-PythonCommand @('-c', "import secrets; print(secrets.token_hex(32))") | Out-String).Trim()
         [System.Environment]::SetEnvironmentVariable('SECRET_KEY', $secret, 'Process')
         Write-Warn 'SECRET_KEY was not set. Generated one for this session.'
     }
