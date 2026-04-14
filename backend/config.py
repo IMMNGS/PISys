@@ -8,23 +8,25 @@ class Config:
     """Base configuration."""
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
 
-    # MySQL connection — update these for your environment
-    MYSQL_USER = os.environ.get("MYSQL_USER", "pisys_user")
-    MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "")
-    MYSQL_HOST = os.environ.get("MYSQL_HOST", "localhost")
-    MYSQL_PORT = os.environ.get("MYSQL_PORT", "3308")
-
-    # Single database for everything
-    MYSQL_DB = os.environ.get("MYSQL_DB", "pisys_db")
+    # PostgreSQL connection — update these for your environment.
+    # MYSQL_* fallback keeps older .env files working during migration.
+    POSTGRES_USER = os.environ.get("POSTGRES_USER", os.environ.get("MYSQL_USER", "postgres"))
+    POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", os.environ.get("MYSQL_PASSWORD", ""))
+    POSTGRES_HOST = os.environ.get("POSTGRES_HOST", os.environ.get("MYSQL_HOST", "localhost"))
+    POSTGRES_PORT = os.environ.get("POSTGRES_PORT", os.environ.get("MYSQL_PORT", "5432"))
+    POSTGRES_DB = os.environ.get("POSTGRES_DB", os.environ.get("MYSQL_DB", "pisys_db"))
 
     # Local authentication bootstrap values.
     ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin12345")
     ADMIN_FULL_NAME = os.environ.get("ADMIN_FULL_NAME", "Administrator")
 
-    SQLALCHEMY_DATABASE_URI = (
-        f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}"
-        f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
+    SQLALCHEMY_DATABASE_URI = os.environ.get(
+        "DATABASE_URL",
+        (
+            f"postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_PASSWORD}"
+            f"@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+        ),
     )
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False

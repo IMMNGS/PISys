@@ -40,13 +40,13 @@ for arg in "$@"; do
   esac
 done
 
-MYSQL_USER="${MYSQL_USER:-pisys_user}"
-MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
-MYSQL_HOST="${MYSQL_HOST:-localhost}"
-MYSQL_PORT="${MYSQL_PORT:-3308}"
-MYSQL_DB="${MYSQL_DB:-pisys_db}"
+POSTGRES_USER="${POSTGRES_USER:-${MYSQL_USER:-postgres}}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-${MYSQL_PASSWORD:-}}"
+POSTGRES_HOST="${POSTGRES_HOST:-${MYSQL_HOST:-localhost}}"
+POSTGRES_PORT="${POSTGRES_PORT:-${MYSQL_PORT:-5432}}"
+POSTGRES_DB="${POSTGRES_DB:-${MYSQL_DB:-pisys_db}}"
 
-export MYSQL_USER MYSQL_PASSWORD MYSQL_HOST MYSQL_PORT MYSQL_DB
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_HOST POSTGRES_PORT POSTGRES_DB
 
 if command -v python3 >/dev/null 2>&1; then
   PYTHON=python3
@@ -87,16 +87,13 @@ term_name,notes
 CSV
   fi
 
-  if command -v mysql >/dev/null 2>&1; then
-    info "Ensuring MySQL database exists"
-    MYSQL_ARGS=(-u "$MYSQL_USER" -h "$MYSQL_HOST" -P "$MYSQL_PORT")
-    if [[ -n "$MYSQL_PASSWORD" ]]; then
-      MYSQL_ARGS+=(-p"$MYSQL_PASSWORD")
-    fi
-    mysql "${MYSQL_ARGS[@]}" -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || true
-  else
-    warn "mysql CLI not found; skipping DB bootstrap"
-  fi
+  info "Ensuring PostgreSQL database exists"
+  "$PYTHON" - <<'PY' || true
+from backend.app import _ensure_databases
+from backend.config import DevelopmentConfig
+
+_ensure_databases(DevelopmentConfig)
+PY
 
   info "Installing frontend dependencies and building"
   (cd frontend && npm install && npm run build)

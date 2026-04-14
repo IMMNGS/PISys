@@ -1,7 +1,8 @@
 import os
 import logging
 
-import pymysql
+import psycopg2
+from psycopg2 import sql
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
@@ -19,20 +20,27 @@ FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"
 
 
 def _ensure_databases(cfg):
-    """Create the MySQL database if it doesn't exist yet."""
-    user = cfg.MYSQL_USER
-    password = cfg.MYSQL_PASSWORD
-    host = cfg.MYSQL_HOST
-    port = int(cfg.MYSQL_PORT)
+    """Create the PostgreSQL database if it doesn't exist yet."""
+    user = cfg.POSTGRES_USER
+    password = cfg.POSTGRES_PASSWORD
+    host = cfg.POSTGRES_HOST
+    port = int(cfg.POSTGRES_PORT)
+    db_name = cfg.POSTGRES_DB
 
-    conn = pymysql.connect(host=host, port=port, user=user, password=password)
+    conn = psycopg2.connect(
+        dbname="postgres",
+        user=user,
+        password=password,
+        host=host,
+        port=port,
+    )
+    conn.autocommit = True
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                f"CREATE DATABASE IF NOT EXISTS `{cfg.MYSQL_DB}` "
-                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-            )
-        conn.commit()
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+            exists = cur.fetchone() is not None
+            if not exists:
+                cur.execute(sql.SQL("CREATE DATABASE {} ENCODING 'UTF8'").format(sql.Identifier(db_name)))
     finally:
         conn.close()
 
