@@ -12,6 +12,14 @@ ok()    { echo -e "${GREEN}✓ $*${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $*${NC}"; }
 fail()  { echo -e "${RED}✗ $*${NC}"; exit 1; }
 
+ensure_non_admin_app_role() {
+  local lowered_user
+  lowered_user="$(printf "%s" "$POSTGRES_USER" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$lowered_user" == "postgres" ]]; then
+    fail "POSTGRES_USER must be a dedicated app role (e.g. pisysdb), not 'postgres'."
+  fi
+}
+
 escape_sql_literal() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
@@ -53,6 +61,8 @@ psql_can_login() {
 }
 
 ensure_postgres_role_for_setup() {
+  ensure_non_admin_app_role
+
   case "${POSTGRES_HOST}" in
     localhost|127.0.0.1|::1) ;;
     *)
@@ -214,6 +224,8 @@ POSTGRES_PORT="${POSTGRES_PORT:-${MYSQL_PORT:-5432}}"
 POSTGRES_DB="${POSTGRES_DB:-${MYSQL_DB:-pisys_db}}"
 
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_HOST POSTGRES_PORT POSTGRES_DB
+
+ensure_non_admin_app_role
 
 if command -v python3 >/dev/null 2>&1; then
   PYTHON=python3

@@ -17,6 +17,13 @@ function Fail($Message) {
     exit 1
 }
 
+function Ensure-NonAdminAppRole {
+    if (-not $env:POSTGRES_USER) { return }
+    if ($env:POSTGRES_USER.Trim().ToLowerInvariant() -eq 'postgres') {
+        Fail "POSTGRES_USER must be a dedicated app role (e.g. pisysdb), not 'postgres'."
+    }
+}
+
 function Get-PythonCommand {
     if (Get-Command py -ErrorAction SilentlyContinue) { return @{ Exe = 'py'; BaseArgs = @('-3') } }
     if (Get-Command python3 -ErrorAction SilentlyContinue) { return @{ Exe = 'python3'; BaseArgs = @() } }
@@ -40,7 +47,20 @@ function Load-EnvFile([string]$Path) {
         $idx = $line.IndexOf('=')
         if ($idx -lt 1) { return }
         $name = $line.Substring(0, $idx).Trim()
-        $value = $line.Substring($idx + 1)
+        $value = $line.Substring($idx + 1).Trim()
+
+        # Support dotenv-style quoted values and inline comments.
+        if ($value.Length -ge 2) {
+            if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+                $value = $value.Substring(1, $value.Length - 2)
+            } else {
+                $commentIdx = $value.IndexOf(' #')
+                if ($commentIdx -ge 0) {
+                    $value = $value.Substring(0, $commentIdx).TrimEnd()
+                }
+            }
+        }
+
         [System.Environment]::SetEnvironmentVariable($name, $value, 'Process')
     }
 }
@@ -255,6 +275,8 @@ function Test-PsqlLogin([string]$User, [string]$Password) {
 }
 
 function Ensure-PostgresRoleForSetup {
+    Ensure-NonAdminAppRole
+
     $script:PsqlExe = Resolve-PsqlExe
     if (-not $script:PsqlExe) {
         Fail 'psql command not found after PostgreSQL installation. Cannot reset postgres password automatically.'
@@ -360,6 +382,8 @@ if (-not $env:POSTGRES_DB) {
     if ($env:MYSQL_DB) { [System.Environment]::SetEnvironmentVariable('POSTGRES_DB', $env:MYSQL_DB, 'Process') }
     else { [System.Environment]::SetEnvironmentVariable('POSTGRES_DB', 'pisys_db', 'Process') }
 }
+
+Ensure-NonAdminAppRole
 
 $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
 
