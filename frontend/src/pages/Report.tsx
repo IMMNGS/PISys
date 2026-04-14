@@ -139,8 +139,11 @@ export default function Report() {
     }
   };
 
-  const handleReportableVariantSave = async (variantId: number) => {
-    const value = (editableReportableVariants[variantId] ?? "").trim();
+  const handleReportableVariantSave = async (
+    variantId: number,
+    nextValue?: string,
+  ) => {
+    const value = (nextValue ?? editableReportableVariants[variantId] ?? "").trim();
     setSavingVariantId(variantId);
     setError(null);
     try {
@@ -310,16 +313,23 @@ export default function Report() {
 
           {/* Variant Result table */}
           <div className="card mb-2">
-            <div className="card-header">
-              Result ({testType === "trio" ? "Trio" : "Singleton"} —{" "}
-              {variants.length} variant{variants.length !== 1 ? "s" : ""})
-            </div>
-            <div className="card-body" style={{ paddingBottom: 0 }}>
+            <div
+              className="card-header"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "0.75rem",
+              }}
+            >
+              <span>
+                Result ({testType === "trio" ? "Trio" : "Singleton"} —{" "}
+                {variants.length} variant{variants.length !== 1 ? "s" : ""})
+              </span>
               {hasMoreVariants && (
                 <button
                   className="btn btn-outline"
                   onClick={() => setShowAllVariants((prev) => !prev)}
-                  style={{ marginBottom: "0.75rem" }}
                 >
                   {showAllVariants
                     ? `Show first ${DEFAULT_VARIANT_ROWS}`
@@ -329,7 +339,12 @@ export default function Report() {
             </div>
             <div
               className="card-body"
-              style={{ padding: 0, overflowX: "auto" }}
+              style={{
+                padding: 0,
+                overflowX: "auto",
+                overflowY: "auto",
+                maxHeight: "30rem",
+              }}
             >
               <table>
                 <thead>
@@ -375,28 +390,29 @@ export default function Report() {
                           <td>{geneOmim || "—"}</td>
                           <td>{hgvs || "—"}</td>
                           <td>
-                            <input
-                              type="text"
+                            <select
                               className="form-control"
                               value={editableReportableVariants[v.id] ?? ""}
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                const next = e.target.value;
                                 setEditableReportableVariants((prev) => ({
                                   ...prev,
-                                  [v.id]: e.target.value,
-                                }))
-                              }
-                              onBlur={() => {
+                                  [v.id]: next,
+                                }));
                                 const original = v.reportable_variant ?? "";
-                                const edited =
-                                  editableReportableVariants[v.id] ?? "";
-                                if (edited !== original) {
-                                  handleReportableVariantSave(v.id);
+                                if (next !== original) {
+                                  handleReportableVariantSave(v.id, next);
                                 }
                               }}
                               disabled={savingVariantId === v.id}
-                              placeholder="e.g. C / A / I / N"
                               style={{ minWidth: "9rem" }}
-                            />
+                            >
+                              <option value="">Select</option>
+                              <option value="C">C</option>
+                              <option value="A">A</option>
+                              <option value="I">I</option>
+                              <option value="N">N</option>
+                            </select>
                           </td>
                           <td>{v.exon_number || "—"}</td>
                           <td>{v.zygosity || "—"}</td>
