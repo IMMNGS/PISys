@@ -28,7 +28,11 @@ def _parse_xlsx_rows(file_storage):
 
     wb = openpyxl.load_workbook(file_storage, data_only=True)
     ws = wb.worksheets[0]
-    rows = list(ws.iter_rows(values_only=True))
+    rows = []
+    for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        if not ws.row_dimensions[i].hidden:
+            rows.append(row)
+
     if len(rows) < 2:
         return []
 
@@ -100,7 +104,12 @@ def _parse_variant_xlsx_rows(file_storage):
 
     wb = openpyxl.load_workbook(file_storage, data_only=True)
     ws = wb.worksheets[0]
-    rows = list(ws.iter_rows(values_only=True))
+    
+    rows = []
+    for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        if not ws.row_dimensions[i].hidden:
+            rows.append(row)
+
     if len(rows) < 2:
         return []
 
@@ -129,28 +138,12 @@ def _parse_variant_xlsx_rows(file_storage):
         data_start = 2
         # Extract section metadata from row 0
         current_section = None
-        valid_cols = 0
         for i, val in enumerate(raw_headers_row0):
             if val and isinstance(val, str) and val.strip():
                 current_section = val.strip()
             
             if current_section:
-                lower_sec = current_section.lower()
-                is_data_section = (
-                    "variant" in lower_sec or
-                    "im" in lower_sec or
-                    "proband" in lower_sec or
-                    "mother" in lower_sec or
-                    "father" in lower_sec or
-                    "lab" in lower_sec
-                )
-                if not is_data_section:
-                    break
-                
                 section_metadata[i] = current_section
-            valid_cols += 1
-            
-        raw_headers = raw_headers[:valid_cols]
     elif len(map0) > 0 and len(map0) >= len(map1):
         raw_headers = row0_headers
         data_start = 1
@@ -162,28 +155,11 @@ def _parse_variant_xlsx_rows(file_storage):
         data_start = 2
         # Extract section metadata from row 0
         current_section = None
-        valid_cols = 0
         for i, val in enumerate(raw_headers_row0):
             if val and isinstance(val, str) and val.strip():
                 current_section = val.strip()
-            
             if current_section:
-                lower_sec = current_section.lower()
-                is_data_section = (
-                    "variant" in lower_sec or
-                    "im" in lower_sec or
-                    "proband" in lower_sec or
-                    "mother" in lower_sec or
-                    "father" in lower_sec or
-                    "lab" in lower_sec
-                )
-                if not is_data_section:
-                    break
-                
                 section_metadata[i] = current_section
-            valid_cols += 1
-            
-        raw_headers = raw_headers[:valid_cols]
     else:
         raw_headers = row0_headers
         data_start = 1
@@ -264,6 +240,13 @@ def _normalize_variant_field(field, value):
             return None
         if field == "reportable_variant":
             return value.upper()
+        # Truncate strictly constrained fields to prevent DB errors from unexpected lengthy text or hidden comments
+        if field in {"inheritance", "inherited_from"} and len(value) > 100:
+            return value[:100]
+        if field in {"zygosity", "exon_number", "omim_id", "rsid", "omimid"} and len(value) > 50:
+            return value[:50]
+        if field == "classification" and len(value) > 200:
+            return value[:200]
         return value
 
     if isinstance(value, float) and value.is_integer():
