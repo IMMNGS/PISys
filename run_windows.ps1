@@ -188,20 +188,74 @@ function Read-SecretValue([string]$Prompt) {
     }
 }
 
+function Read-RequiredSecretValue([string]$Prompt) {
+    while ($true) {
+        $value = Read-SecretValue -Prompt $Prompt
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value
+        }
+        Write-Warn 'A non-empty password is required for setup.'
+    }
+}
+
+function Escape-SqlLiteral([string]$Value) {
+    return $Value.Replace("'", "''")
+}
+
+function Escape-SqlIdentifier([string]$Value) {
+    return $Value.Replace('"', '""')
+}
+
+function Invoke-PsqlCommand([string]$Password, [string[]]$Args) {
+    $oldPgPassword = $env:PGPASSWORD
+    [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $Password, 'Process')
+    try {
+        & psql @Args
+    } finally {
+        if ($null -eq $oldPgPassword) {
+            [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $null, 'Process')
+        } else {
+            [System.Environment]::SetEnvironmentVariable('PGPASSWORD', $oldPgPassword, 'Process')
+        }
+    }
+}
+
+function Reset-PostgresPasswordForSetup {
+    if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
+        Fail 'psql command not found after PostgreSQL installation. Cannot reset postgres password automatically.'
+    }
+
+    $user = $env:POSTGRES_USER
+    $host = $env:POSTGRES_HOST
+    $port = $env:POSTGRES_PORT
+
+    # Always require a target password during setup.
+    $targetPassword = Read-RequiredSecretValue -Prompt "Enter NEW PostgreSQL password for user '$user'"
+
+    $verifyArgs = @('-h', $host, '-p', $port, '-U', $user, '-d', 'postgres', '-tAc', 'SELECT 1;')
+    Invoke-PsqlCommand -Password $targetPassword -Args $verifyArgs | Out-Null
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Could not authenticate with the new password directly."
+        $currentPassword = Read-RequiredSecretValue -Prompt "Enter CURRENT PostgreSQL password for user '$user' to reset it"
+
+        $escapedUser = Escape-SqlIdentifier -Value $user
+        $escapedPassword = Escape-SqlLiteral -Value $targetPassword
+        $alterSql = "ALTER USER \"$escapedUser\" WITH PASSWORD '$escapedPassword';"
+        $alterArgs = @('-h', $host, '-p', $port, '-U', $user, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', $alterSql)
+
+        Invoke-PsqlCommand -Password $currentPassword -Args $alterArgs | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Fail "Failed to reset PostgreSQL password for '$user'. Verify the current password and try setup again."
+        }
+    }
+
+    [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $targetPassword, 'Process')
+    Write-Ok "PostgreSQL password for '$user' is set for this setup run."
+}
+
 function Ensure-PostgresPasswordForSetup {
-    if (-not [string]::IsNullOrWhiteSpace($env:POSTGRES_PASSWORD)) {
-        return
-    }
-
-    Write-Warn "POSTGRES_PASSWORD is not set for PostgreSQL user '$($env:POSTGRES_USER)'."
-    $password = Read-SecretValue -Prompt "Enter PostgreSQL password (input hidden; press Enter to keep empty)"
-    [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $password, 'Process')
-
-    if ([string]::IsNullOrEmpty($password)) {
-        Write-Warn 'Using an empty PostgreSQL password for this run.'
-    } else {
-        Write-Ok 'PostgreSQL password captured for this setup run.'
-    }
+    Reset-PostgresPasswordForSetup
 }
 
 $PythonCommand = Get-PythonCommand
