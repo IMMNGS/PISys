@@ -255,13 +255,13 @@ function Reset-PostgresPasswordForSetup {
     }
 
     $user = $env:POSTGRES_USER
-    $host = $env:POSTGRES_HOST
-    $port = $env:POSTGRES_PORT
+    $dbHost = $env:POSTGRES_HOST
+    $dbPort = $env:POSTGRES_PORT
 
     # Always require a target password during setup.
     $targetPassword = Read-RequiredSecretValue -Prompt "Enter NEW PostgreSQL password for user '$user'"
 
-    $verifyArgs = @('-h', $host, '-p', $port, '-U', $user, '-d', 'postgres', '-tAc', 'SELECT 1;')
+    $verifyArgs = @('-h', $dbHost, '-p', $dbPort, '-U', $user, '-d', 'postgres', '-tAc', 'SELECT 1;')
     Invoke-PsqlCommand -Password $targetPassword -Args $verifyArgs | Out-Null
 
     if ($LASTEXITCODE -ne 0) {
@@ -271,7 +271,7 @@ function Reset-PostgresPasswordForSetup {
         $escapedUser = Escape-SqlIdentifier -Value $user
         $escapedPassword = Escape-SqlLiteral -Value $targetPassword
         $alterSql = 'ALTER USER "{0}" WITH PASSWORD ''{1}'';' -f $escapedUser, $escapedPassword
-        $alterArgs = @('-h', $host, '-p', $port, '-U', $user, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', $alterSql)
+        $alterArgs = @('-h', $dbHost, '-p', $dbPort, '-U', $user, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', $alterSql)
 
         Invoke-PsqlCommand -Password $currentPassword -Args $alterArgs | Out-Null
         if ($LASTEXITCODE -ne 0) {
