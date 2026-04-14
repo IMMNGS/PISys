@@ -75,12 +75,34 @@ function Ensure-PostgresInstalled {
         Fail 'PostgreSQL is not installed and winget is unavailable. Install PostgreSQL manually, then rerun setup.'
     }
 
-    Write-Info 'PostgreSQL not found. Installing via winget in interactive mode...'
-    Write-Info 'Complete any installer prompts, then return to this setup window.'
-    & winget install --id PostgreSQL.PostgreSQL --exact --accept-package-agreements --accept-source-agreements
-    $wingetExit = $LASTEXITCODE
-    if ($wingetExit -ne 0) {
-        Fail "PostgreSQL installation failed (winget exit code: $wingetExit)."
+    Write-Info 'PostgreSQL not found. Updating winget sources...'
+    & winget source update | Out-Null
+
+    $packageIds = @(
+        'PostgreSQL.PostgreSQL.18',
+        'PostgreSQL.PostgreSQL',
+        'PostgreSQL.PostgreSQL.17',
+        'PostgreSQL.PostgreSQL.16',
+        'PostgreSQL.PostgreSQL.15',
+        'EnterpriseDB.PostgreSQL'
+    )
+
+    $installed = $false
+    foreach ($pkg in $packageIds) {
+        Write-Info "Trying winget package id: $pkg"
+        Write-Info 'If installer prompts appear, complete them and return to this setup window.'
+        & winget install --id=$pkg -e --source winget --accept-package-agreements --accept-source-agreements
+        if ($LASTEXITCODE -eq 0) {
+            $installed = $true
+            break
+        }
+    }
+
+    if (-not $installed) {
+        Write-Warn 'No known PostgreSQL package id could be installed automatically.'
+        Write-Info 'Available winget PostgreSQL entries:'
+        & winget search PostgreSQL --source winget
+        Fail 'PostgreSQL installation failed. Install one of the listed PostgreSQL packages manually, then rerun setup.'
     }
 
     Add-PostgresBinToPath
