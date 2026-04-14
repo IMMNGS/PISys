@@ -129,12 +129,28 @@ def _parse_variant_xlsx_rows(file_storage):
         data_start = 2
         # Extract section metadata from row 0
         current_section = None
+        valid_cols = 0
         for i, val in enumerate(raw_headers_row0):
             if val and isinstance(val, str) and val.strip():
                 current_section = val.strip()
+            
             if current_section:
-                # Store the section mapping for this column index
+                lower_sec = current_section.lower()
+                is_data_section = (
+                    "variant" in lower_sec or
+                    "im" in lower_sec or
+                    "proband" in lower_sec or
+                    "mother" in lower_sec or
+                    "father" in lower_sec or
+                    "lab" in lower_sec
+                )
+                if not is_data_section:
+                    break
+                
                 section_metadata[i] = current_section
+            valid_cols += 1
+            
+        raw_headers = raw_headers[:valid_cols]
     elif len(map0) > 0 and len(map0) >= len(map1):
         raw_headers = row0_headers
         data_start = 1
@@ -146,11 +162,28 @@ def _parse_variant_xlsx_rows(file_storage):
         data_start = 2
         # Extract section metadata from row 0
         current_section = None
+        valid_cols = 0
         for i, val in enumerate(raw_headers_row0):
             if val and isinstance(val, str) and val.strip():
                 current_section = val.strip()
+            
             if current_section:
+                lower_sec = current_section.lower()
+                is_data_section = (
+                    "variant" in lower_sec or
+                    "im" in lower_sec or
+                    "proband" in lower_sec or
+                    "mother" in lower_sec or
+                    "father" in lower_sec or
+                    "lab" in lower_sec
+                )
+                if not is_data_section:
+                    break
+                
                 section_metadata[i] = current_section
+            valid_cols += 1
+            
+        raw_headers = raw_headers[:valid_cols]
     else:
         raw_headers = row0_headers
         data_start = 1
