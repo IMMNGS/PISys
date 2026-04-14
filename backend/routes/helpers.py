@@ -32,8 +32,41 @@ def _parse_xlsx_rows(file_storage):
     if len(rows) < 2:
         return []
 
-    raw_headers = [str(h).strip() if h else f"col_{i}"
-                   for i, h in enumerate(rows[0])]
+    def _row_headers(row):
+        return [str(h).strip() if h else f"col_{i}" for i, h in enumerate(row)]
+
+    def _choose_header_index(all_rows):
+        """Pick the most likely patient header row from the first few rows."""
+        available = get_available_patient_fields()
+        best_idx = 0
+        best_score = float("-inf")
+        scan_limit = min(6, len(all_rows))
+
+        for idx in range(scan_limit):
+            row = all_rows[idx]
+            headers = _row_headers(row)
+            mapping = auto_map_columns(headers, available)
+            mapped_fields = set(mapping.values())
+
+            # Prefer rows that look like real headers and map key fields.
+            text_cells = sum(1 for v in row if isinstance(v, str) and v.strip())
+            non_empty_cells = sum(1 for v in row if v is not None and str(v).strip())
+            score = (len(mapping) * 10) + (text_cells * 2) + non_empty_cells
+            if "lab_number" in mapped_fields:
+                score += 30
+            if "name" in mapped_fields:
+                score += 8
+            if "im_lab_number" in mapped_fields:
+                score += 5
+
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+
+        return best_idx
+
+    header_idx = _choose_header_index(rows)
+    raw_headers = _row_headers(rows[header_idx])
 
     # Try auto-mapping first, fall back to simple lowercased names
     available = get_available_patient_fields()
@@ -47,7 +80,9 @@ def _parse_xlsx_rows(file_storage):
             headers.append(h.lower().replace(" ", "_"))
 
     result = []
-    for row in rows[1:]:
+    for row in rows[header_idx + 1:]:
+        if all(v is None or (isinstance(v, str) and not v.strip()) for v in row):
+            continue
         d = {}
         for h, v in zip(headers, row):
             d[h] = v
@@ -284,11 +319,11 @@ _PATIENT_FIELD_VARIATIONS = {
     ],
     "request_dr": [
         "Requesting Dr.", "requesting doctor", "request_dr",
-        "requesting dr", "requesting physician",
+        "requesting dr", "requesting physician", "Request Dr.", "Request Dr. ",
     ],
     "ngs_tat": [
         "NGS TAT", "NGS TAT Wet + Dry (56 days)", "ngs tat",
-        "ngs turnaround time", "ngs_turnaround_time",
+        "ngs turnaround time", "ngs_turnaround_time", "TAT for NGS",
     ],
     "ngs_tat_final": [
         "NGS TAT Final", "NGS final TAT (84 days)", "ngs tat final",
