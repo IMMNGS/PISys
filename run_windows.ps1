@@ -178,6 +178,32 @@ function Ensure-PostgresServiceRunning {
     }
 }
 
+function Read-SecretValue([string]$Prompt) {
+    $secure = Read-Host -Prompt $Prompt -AsSecureString
+    $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+    } finally {
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+    }
+}
+
+function Ensure-PostgresPasswordForSetup {
+    if (-not [string]::IsNullOrWhiteSpace($env:POSTGRES_PASSWORD)) {
+        return
+    }
+
+    Write-Warn "POSTGRES_PASSWORD is not set for PostgreSQL user '$($env:POSTGRES_USER)'."
+    $password = Read-SecretValue -Prompt "Enter PostgreSQL password (input hidden; press Enter to keep empty)"
+    [System.Environment]::SetEnvironmentVariable('POSTGRES_PASSWORD', $password, 'Process')
+
+    if ([string]::IsNullOrEmpty($password)) {
+        Write-Warn 'Using an empty PostgreSQL password for this run.'
+    } else {
+        Write-Ok 'PostgreSQL password captured for this setup run.'
+    }
+}
+
 $PythonCommand = Get-PythonCommand
 if (-not $PythonCommand) {
     Fail 'Python 3 was not found on PATH. Install Python 3.9+ and try again.'
@@ -219,6 +245,8 @@ function Run-Setup {
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
         Fail 'Node.js is required but was not found on PATH.'
     }
+
+    Ensure-PostgresPasswordForSetup
 
     Ensure-PostgresInstalled
     Ensure-PostgresServiceRunning
