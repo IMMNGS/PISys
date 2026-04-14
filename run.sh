@@ -21,14 +21,14 @@ ensure_postgres_installed() {
   info "PostgreSQL not found; attempting automatic installation"
 
   if command -v brew >/dev/null 2>&1; then
-    brew install postgresql@17 || brew install postgresql
+    brew install postgresql@18 || brew install postgresql
   elif command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update
     sudo apt-get install -y postgresql postgresql-client
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y postgresql-server postgresql
+    sudo dnf install -y postgresql18-server postgresql18 || sudo dnf install -y postgresql-server postgresql
   elif command -v yum >/dev/null 2>&1; then
-    sudo yum install -y postgresql-server postgresql
+    sudo yum install -y postgresql18-server postgresql18 || sudo yum install -y postgresql-server postgresql
   elif command -v pacman >/dev/null 2>&1; then
     sudo pacman -Sy --noconfirm postgresql
   else
@@ -49,9 +49,9 @@ ensure_postgres_service_running() {
   esac
 
   if command -v brew >/dev/null 2>&1; then
-    brew services start postgresql@17 >/dev/null 2>&1 || brew services start postgresql >/dev/null 2>&1 || true
+    brew services start postgresql@18 >/dev/null 2>&1 || brew services start postgresql >/dev/null 2>&1 || true
   elif command -v systemctl >/dev/null 2>&1; then
-    sudo systemctl start postgresql >/dev/null 2>&1 || sudo systemctl start postgresql-17 >/dev/null 2>&1 || true
+    sudo systemctl start postgresql-18 >/dev/null 2>&1 || sudo systemctl start postgresql >/dev/null 2>&1 || sudo systemctl start postgresql-17 >/dev/null 2>&1 || true
   fi
 }
 

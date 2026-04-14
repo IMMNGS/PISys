@@ -65,9 +65,51 @@ function Add-PostgresBinToPath {
     }
 }
 
-function Ensure-PostgresInstalled {
+function Test-PostgresInstalled {
+    Add-PostgresBinToPath
+
     if (Get-Command psql -ErrorAction SilentlyContinue) {
-        Write-Ok 'PostgreSQL client detected.'
+        return $true
+    }
+
+    $pgRoot = 'C:\Program Files\PostgreSQL'
+    if (Test-Path $pgRoot) {
+        $psqlExe = Get-ChildItem -Path $pgRoot -Filter psql.exe -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($psqlExe) {
+            return $true
+        }
+    }
+
+    $services = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
+    if ($services) {
+        return $true
+    }
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        $wingetIds = @(
+            'PostgreSQL.PostgreSQL.18',
+            'PostgreSQL.PostgreSQL',
+            'PostgreSQL.PostgreSQL.17',
+            'PostgreSQL.PostgreSQL.16',
+            'PostgreSQL.PostgreSQL.15',
+            'EnterpriseDB.PostgreSQL'
+        )
+
+        foreach ($pkg in $wingetIds) {
+            $listOutput = (& winget list --id=$pkg -e --source winget 2>&1 | Out-String)
+            if ($LASTEXITCODE -eq 0 -and $listOutput -notmatch 'No installed package found') {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
+function Ensure-PostgresInstalled {
+    if (Test-PostgresInstalled) {
+        Write-Ok 'PostgreSQL installation detected.'
         return
     }
 
@@ -92,7 +134,8 @@ function Ensure-PostgresInstalled {
         Write-Info "Trying winget package id: $pkg"
         Write-Info 'If installer prompts appear, complete them and return to this setup window.'
         & winget install --id=$pkg -e --source winget --accept-package-agreements --accept-source-agreements
-        if ($LASTEXITCODE -eq 0) {
+        Add-PostgresBinToPath
+        if ($LASTEXITCODE -eq 0 -and (Test-PostgresInstalled)) {
             $installed = $true
             break
         }
@@ -105,9 +148,7 @@ function Ensure-PostgresInstalled {
         Fail 'PostgreSQL installation failed. Install one of the listed PostgreSQL packages manually, then rerun setup.'
     }
 
-    Add-PostgresBinToPath
-
-    if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
+    if (-not (Test-PostgresInstalled)) {
         Fail 'PostgreSQL installation did not complete successfully. Install PostgreSQL manually, then rerun setup.'
     }
 
