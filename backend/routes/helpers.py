@@ -2,6 +2,9 @@
 
 import math
 import re
+import io
+import zipfile
+import warnings
 from difflib import SequenceMatcher
 
 
@@ -24,17 +27,7 @@ def _parse_xlsx_rows(file_storage):
     Automatically maps Excel column names to database field names using
     fuzzy matching against known column name variations.
     """
-    import openpyxl
-
-    wb = openpyxl.load_workbook(file_storage, data_only=True)
-    ws = wb.worksheets[0]
-    rows = []
-    for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if not ws.row_dimensions[i].hidden:
-            rows.append(row)
-
-    if len(rows) < 2:
-        return []
+    wb = _load_workbook_tolerant(file_storage)
 
     def _row_headers(row):
         return [str(h).strip() if h else f"col_{i}" for i, h in enumerate(row)]
@@ -69,29 +62,96 @@ def _parse_xlsx_rows(file_storage):
 
         return best_idx
 
-    header_idx = _choose_header_index(rows)
-    raw_headers = _row_headers(rows[header_idx])
-
-    # Try auto-mapping first, fall back to simple lowercased names
-    available = get_available_patient_fields()
-    mapping = auto_map_columns(raw_headers, available)
-
-    headers = []
-    for h in raw_headers:
-        if h in mapping:
-            headers.append(mapping[h])
-        else:
-            headers.append(h.lower().replace(" ", "_"))
-
     result = []
-    for row in rows[header_idx + 1:]:
-        if all(v is None or (isinstance(v, str) and not v.strip()) for v in row):
+    for ws in wb.worksheets:
+        rows = []
+        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            if not ws.row_dimensions[i].hidden:
+                rows.append(row)
+
+        if len(rows) < 2:
             continue
-        d = {}
-        for h, v in zip(headers, row):
-            d[h] = v
-        result.append(d)
+
+        header_idx = _choose_header_index(rows)
+        raw_headers = _row_headers(rows[header_idx])
+
+        # Try auto-mapping first, fall back to simple lowercased names
+        available = get_available_patient_fields()
+        mapping = auto_map_columns(raw_headers, available)
+
+        headers = []
+        for h in raw_headers:
+            if h in mapping:
+                headers.append(mapping[h])
+            else:
+                headers.append(h.lower().replace(" ", "_"))
+
+        for row in rows[header_idx + 1:]:
+            if all(v is None or (isinstance(v, str) and not v.strip()) for v in row):
+                continue
+            d = {}
+            for h, v in zip(headers, row):
+                d[h] = v
+            result.append(d)
     return result
+
+
+def _load_workbook_tolerant(file_storage):
+    """Load workbook while tolerating malformed print-area metadata."""
+    import openpyxl
+
+    stream = getattr(file_storage, "stream", file_storage)
+    if hasattr(stream, "seek"):
+        stream.seek(0)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Print area cannot be set to .*",
+                category=UserWarning,
+            )
+            return openpyxl.load_workbook(stream, data_only=True)
+    except ValueError as exc:
+        if "Print area cannot be set to defined name" not in str(exc):
+            raise
+
+    if hasattr(stream, "seek"):
+        stream.seek(0)
+    raw = stream.read()
+    if not isinstance(raw, (bytes, bytearray)):
+        raise
+
+    repaired = _remove_print_area_defined_names(raw)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Print area cannot be set to .*",
+            category=UserWarning,
+        )
+        return openpyxl.load_workbook(io.BytesIO(repaired), data_only=True)
+
+
+def _remove_print_area_defined_names(xlsx_bytes):
+    """Strip workbook-level print-area defined names that break openpyxl."""
+    input_buf = io.BytesIO(xlsx_bytes)
+    output_buf = io.BytesIO()
+
+    with zipfile.ZipFile(input_buf, "r") as zin:
+        with zipfile.ZipFile(output_buf, "w", zipfile.ZIP_DEFLATED) as zout:
+            for name in zin.namelist():
+                data = zin.read(name)
+                if name == "xl/workbook.xml":
+                    text = data.decode("utf-8")
+                    text = re.sub(
+                        r'<definedName[^>]*name="_xlnm\.Print_Area"[^>]*>.*?</definedName>',
+                        "",
+                        text,
+                        flags=re.DOTALL,
+                    )
+                    data = text.encode("utf-8")
+                zout.writestr(name, data)
+
+    return output_buf.getvalue()
 
 
 def _parse_variant_xlsx_rows(file_storage):
@@ -100,9 +160,7 @@ def _parse_variant_xlsx_rows(file_storage):
     Handles the specific column names used in variant spreadsheets with fuzzy
     matching against known column name variations.
     """
-    import openpyxl
-
-    wb = openpyxl.load_workbook(file_storage, data_only=True)
+    wb = _load_workbook_tolerant(file_storage)
     ws = wb.worksheets[0]
     
     rows = []
@@ -174,7 +232,19 @@ def _parse_variant_xlsx_rows(file_storage):
         else:
             headers.append(h)
 
+    has_rv_column = "reportable_variant" in headers
+
     result = []
+
+    def _has_value(cell):
+        if cell is None:
+            return False
+        if isinstance(cell, float) and math.isnan(cell):
+            return False
+        if isinstance(cell, str) and not cell.strip():
+            return False
+        return True
+
     for row in rows[data_start:]:
         d = {}
         for i, (h, v) in enumerate(zip(headers, row)):
@@ -207,6 +277,25 @@ def _parse_variant_xlsx_rows(file_storage):
                 key = f"{sec}_{h}"
 
             d[key] = v
+
+        non_empty_count = sum(1 for cell in row if _has_value(cell))
+        raw_rv = d.get("reportable_variant")
+        if raw_rv is None and row and has_rv_column:
+            # The reportable variant marker is expected in the first column.
+            raw_rv = row[0]
+        rv = _normalize_variant_field("reportable_variant", raw_rv)
+        if rv is not None:
+            d["reportable_variant"] = rv
+
+        # Skip comment/reference lines that only have one populated cell.
+        if has_rv_column and rv is None and non_empty_count <= 1:
+            continue
+
+        # Also skip one-cell note lines when first cell is verbose text,
+        # while allowing canonical markers like I/A/C/N.
+        if has_rv_column and rv and non_empty_count <= 1 and not re.fullmatch(r"[A-Z]{1,3}", rv):
+            continue
+
         result.append(d)
     return result
 
