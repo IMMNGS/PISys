@@ -29,12 +29,18 @@ type DetailTerm =
 
 export default function ManageHpo() {
   // ── Selection state ────────────────────────────────────────────────────
-  const [selectedTermIds, setSelectedTermIds] = useState<Set<number>>(new Set());
-  const [selectedTermLabels, setSelectedTermLabels] = useState<Map<number, string>>(new Map());
+  const [selectedTermIds, setSelectedTermIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const [selectedTermLabels, setSelectedTermLabels] = useState<
+    Map<number, string>
+  >(new Map());
   const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(
     new Set(),
   );
-  const [selectedPatientLabels, setSelectedPatientLabels] = useState<Map<number, string>>(new Map());
+  const [selectedPatientLabels, setSelectedPatientLabels] = useState<
+    Map<number, string>
+  >(new Map());
 
   // ── Messages ───────────────────────────────────────────────────────────
   const [assignMsg, setAssignMsg] = useState<{
@@ -51,7 +57,9 @@ export default function ManageHpo() {
   const [editingTermId, setEditingTermId] = useState<number | null>(null);
   const [editTermName, setEditTermName] = useState("");
   const [editNotes, setEditNotes] = useState("");
-  const [editMsg, setEditMsg] = useState<{ type: string; text: string } | null>(null);
+  const [editMsg, setEditMsg] = useState<{ type: string; text: string } | null>(
+    null,
+  );
 
   // ── Fetch callbacks for SearchableMultiSelect ─────────────────────────
   const fetchTermItems = useCallback(
@@ -79,7 +87,9 @@ export default function ManageHpo() {
       }));
       // Track labels for selected tags
       for (const item of items) {
-        setSelectedPatientLabels((prev) => new Map(prev).set(item.id, item.label));
+        setSelectedPatientLabels((prev) =>
+          new Map(prev).set(item.id, item.label),
+        );
       }
       return { items, total: result.total };
     },
@@ -201,7 +211,10 @@ export default function ManageHpo() {
       const data = await fetchCombinedTermOptions(browseSearch, limit, offset);
       setBrowseResults(data.items as BrowseTerm[]);
       setBrowsePages(Math.max(1, Math.ceil(data.total / limit)));
-      if (detailTerm?.kind === "disease" && detailTerm.value.id === editingTermId) {
+      if (
+        detailTerm?.kind === "disease" &&
+        detailTerm.value.id === editingTermId
+      ) {
         const refreshed = await fetchDiseaseTermById(editingTermId);
         setDetailTerm({ kind: "disease", value: refreshed });
       }
@@ -242,10 +255,17 @@ export default function ManageHpo() {
   };
 
   const handleRefreshHPO = async () => {
-    if (!window.confirm("This will pull the latest HPO terms into the database. It may take a minute. Continue?")) return;
+    if (
+      !window.confirm(
+        "This will pull the latest HPO terms into the database. It may take a minute. Continue?",
+      )
+    )
+      return;
     try {
       const res = await refreshHPOTerms();
-      alert(`Refreshed successfully: ${res.added} added, ${res.updated} updated.`);
+      alert(
+        `Refreshed successfully: ${res.added} added, ${res.updated} updated.`,
+      );
       setBrowsePage(1);
     } catch (e: any) {
       alert("Failed to refresh HPO terms: " + (e.message || "Unknown error"));
@@ -264,8 +284,8 @@ export default function ManageHpo() {
         </button>
       </div>
       <p className="text-muted mb-2">
-        Use one search to find disease terms,
-        then assign selected terms to selected patients.
+        Use one search to find disease terms, then assign selected terms to
+        selected patients.
       </p>
 
       {/* Side-by-side selectors */}
@@ -289,16 +309,16 @@ export default function ManageHpo() {
                   <small className="text-muted">Selected:</small>
                   <div className="tag-list">
                     {[...selectedTermIds].map((id) => (
-                        <span key={id} className="tag">
-                          {selectedTermLabels.get(id) ?? `#${id}`}
-                          <button
-                            className="tag-remove"
-                            onClick={() => removeTerm(id)}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
+                      <span key={id} className="tag">
+                        {selectedTermLabels.get(id) ?? `#${id}`}
+                        <button
+                          className="tag-remove"
+                          onClick={() => removeTerm(id)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
                   </div>
                 </div>
               )}
@@ -323,16 +343,16 @@ export default function ManageHpo() {
                   <small className="text-muted">Selected:</small>
                   <div className="tag-list">
                     {[...selectedPatientIds].map((id) => (
-                        <span key={id} className="tag">
-                          {selectedPatientLabels.get(id) ?? `#${id}`}
-                          <button
-                            className="tag-remove"
-                            onClick={() => removePatient(id)}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
+                      <span key={id} className="tag">
+                        {selectedPatientLabels.get(id) ?? `#${id}`}
+                        <button
+                          className="tag-remove"
+                          onClick={() => removePatient(id)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
                   </div>
                 </div>
               )}
@@ -347,8 +367,8 @@ export default function ManageHpo() {
           disabled={!canAssign}
           onClick={handleAssign}
         >
-          Assign Selected Terms → Selected Patients ({selectedTermIds.size} terms,
-          {" "}{selectedPatientIds.size} patients)
+          Assign Selected Terms → Selected Patients ({selectedTermIds.size}{" "}
+          terms, {selectedPatientIds.size} patients)
         </button>
       </div>
 
@@ -398,7 +418,11 @@ export default function ManageHpo() {
               browseResults.map((t) => (
                 <tr key={`${t.term_type}-${t.term_id}`}>
                   <td>{t.term_type === "hpo" ? "HPO" : "Disease"}</td>
-                  <td>{t.term_type === "hpo" ? (t.hpo_id ?? "—") : `D-${t.term_id}`}</td>
+                  <td>
+                    {t.term_type === "hpo"
+                      ? (t.hpo_id ?? "—")
+                      : `D-${t.term_id}`}
+                  </td>
                   <td>{t.term_name}</td>
                   <td>
                     <div className="flex-gap">
@@ -419,7 +443,7 @@ export default function ManageHpo() {
                                 notes:
                                   detailTerm?.kind === "disease" &&
                                   detailTerm.value.id === t.term_id
-                                    ? detailTerm.value.notes ?? null
+                                    ? (detailTerm.value.notes ?? null)
                                     : null,
                               })
                             }
@@ -449,16 +473,32 @@ export default function ManageHpo() {
           <div className="card-body">
             {detailTerm.kind === "hpo" ? (
               <>
-                <p><strong>HPO ID:</strong> {detailTerm.value.hpo_id}</p>
-                <p><strong>Term Name:</strong> {detailTerm.value.term_name}</p>
-                <p><strong>Definition:</strong> {detailTerm.value.definition || "—"}</p>
-                <p><strong>Synonyms:</strong> {detailTerm.value.synonyms || "—"}</p>
+                <p>
+                  <strong>HPO ID:</strong> {detailTerm.value.hpo_id}
+                </p>
+                <p>
+                  <strong>Term Name:</strong> {detailTerm.value.term_name}
+                </p>
+                <p>
+                  <strong>Definition:</strong>{" "}
+                  {detailTerm.value.definition || "—"}
+                </p>
+                <p>
+                  <strong>Synonyms:</strong> {detailTerm.value.synonyms || "—"}
+                </p>
               </>
             ) : (
               <>
-                <p><strong>Name:</strong> {detailTerm.value.term_name}</p>
-                <p><strong>Identifier:</strong> {detailTerm.value.normalized_name ?? "—"}</p>
-                <p><strong>Notes:</strong> {detailTerm.value.notes || "—"}</p>
+                <p>
+                  <strong>Name:</strong> {detailTerm.value.term_name}
+                </p>
+                <p>
+                  <strong>Identifier:</strong>{" "}
+                  {detailTerm.value.normalized_name ?? "—"}
+                </p>
+                <p>
+                  <strong>Notes:</strong> {detailTerm.value.notes || "—"}
+                </p>
                 <p>
                   <strong>Created:</strong>{" "}
                   {detailTerm.value.created_at
@@ -477,7 +517,9 @@ export default function ManageHpo() {
           <div className="card-body">
             <div className="row mb-1">
               <div className="col-2">
-                <label className="mb-1"><strong>Term Name</strong></label>
+                <label className="mb-1">
+                  <strong>Term Name</strong>
+                </label>
                 <input
                   className="form-control"
                   value={editTermName}
@@ -485,7 +527,9 @@ export default function ManageHpo() {
                 />
               </div>
               <div className="col-2">
-                <label className="mb-1"><strong>Notes</strong></label>
+                <label className="mb-1">
+                  <strong>Notes</strong>
+                </label>
                 <input
                   className="form-control"
                   value={editNotes}
