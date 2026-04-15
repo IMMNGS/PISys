@@ -11,7 +11,7 @@ class Config:
     # MySQL connection defaults.
     # POSTGRES_* fallback keeps transitional environments working.
     MYSQL_USER = os.environ.get("MYSQL_USER", os.environ.get("POSTGRES_USER", "root"))
-    MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", os.environ.get("POSTGRES_PASSWORD", "password"))
+    MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", os.environ.get("POSTGRES_PASSWORD", ""))
     MYSQL_HOST = os.environ.get("MYSQL_HOST", os.environ.get("POSTGRES_HOST", "localhost"))
     MYSQL_PORT = os.environ.get("MYSQL_PORT", os.environ.get("POSTGRES_PORT", "3306"))
     MYSQL_DB = os.environ.get("MYSQL_DB", os.environ.get("POSTGRES_DB", "pisys_db"))

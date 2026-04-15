@@ -77,7 +77,7 @@ if (-not $env:MYSQL_USER) {
     [System.Environment]::SetEnvironmentVariable('MYSQL_USER', 'root', 'Process')
 }
 if (-not $env:MYSQL_PASSWORD) {
-    [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', 'password', 'Process')
+    [System.Environment]::SetEnvironmentVariable('MYSQL_PASSWORD', '', 'Process')
 }
 if (-not $env:MYSQL_HOST) {
     [System.Environment]::SetEnvironmentVariable('MYSQL_HOST', 'localhost', 'Process')
