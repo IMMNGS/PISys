@@ -108,9 +108,20 @@ export default function DescriptiveStats() {
         count: row.count,
       })),
     );
+    pushRows("reported_variant", data.reported_variant_distribution);
+    pushRows(
+      "sample_variant_count",
+      data.sample_variant_counts.map((row) => ({
+        label: row.lab_number,
+        count: row.total_count,
+      })),
+    );
     pushRows(
       "gene",
-      data.top_genes.map((row) => ({ label: row.gene, count: row.count })),
+      data.top_genes.map((row) => ({
+        label: row.chromosome ? `${row.gene} (chr${row.chromosome})` : row.gene,
+        count: row.count,
+      })),
     );
     pushRows(
       "keyword",
@@ -138,12 +149,17 @@ export default function DescriptiveStats() {
     URL.revokeObjectURL(url);
   };
 
+  const totalReportableVariants =
+    data?.reported_variant_distribution.reduce(
+      (sum, item) => sum + item.count,
+      0,
+    ) ?? 0;
+
   return (
     <>
       <h2>Descriptive Statistics</h2>
       <p className="text-muted mb-2">
-        Local summary of current dataset with chart-based views for demographic
-        mix, VCF file metadata, and variant-level patterns.
+        Snapshot of patients and reported variants.
       </p>
 
       <div className="card mb-2">
@@ -206,7 +222,7 @@ export default function DescriptiveStats() {
             </button>
           </div>
           <p className="text-muted mt-1 mb-0">
-            Filters apply to patient report dates and recorded test type.
+            Filters: report date and test type.
           </p>
         </div>
       </div>
@@ -223,6 +239,10 @@ export default function DescriptiveStats() {
               value={data.counts.total_variants}
             />
             <MetricCard
+              label="Total reportable variants"
+              value={totalReportableVariants}
+            />
+            <MetricCard
               label="Singleton variants"
               value={data.counts.singleton_variants}
             />
@@ -230,17 +250,17 @@ export default function DescriptiveStats() {
               label="Trio variants"
               value={data.counts.trio_variants}
             />
-            <MetricCard label="VCF files" value={data.counts.vcf_files} />
+            <MetricCard label="Files uploaded" value={data.counts.vcf_files} />
             <MetricCard
-              label="Parsed VCF variants"
+              label="Parsed file variants"
               value={data.counts.vcf_content_variants}
             />
             <MetricCard
-              label="Readable VCF files"
+              label="Readable files"
               value={data.counts.vcf_files_readable}
             />
             <MetricCard
-              label="Skipped VCF files"
+              label="Skipped files"
               value={data.counts.vcf_files_skipped}
             />
           </div>
@@ -248,25 +268,21 @@ export default function DescriptiveStats() {
           <div className="analytics-grid mb-2">
             <DistributionChart
               title="Sex distribution"
-              description="Patients grouped by recorded sex in the local database."
               items={data.demographic_distribution.sex}
               maxItems={6}
             />
             <DistributionChart
               title="Age bands"
-              description="Age values normalized to years and grouped into broad bands."
               items={data.demographic_distribution.age}
               maxItems={8}
             />
             <DistributionChart
               title="Type of test"
-              description="Recorded testing requests across the current patient set."
               items={data.demographic_distribution.test_type}
               maxItems={8}
             />
             <DistributionChart
               title="Ethnicity"
-              description="Stored ethnicity values, grouped by the most common labels."
               items={data.demographic_distribution.ethnicity}
               maxItems={8}
             />
@@ -274,38 +290,29 @@ export default function DescriptiveStats() {
 
           <div className="analytics-grid analytics-grid--wide mb-2">
             <DistributionChart
-              title="VCF file sizes"
-              description="Uploaded VCF metadata grouped into size buckets."
-              items={data.vcf_distribution.file_size}
-              maxItems={6}
+              title="Reported variants breakdown"
+              items={[
+                { label: "Total", count: data.counts.total_variants },
+                { label: "Singleton", count: data.counts.singleton_variants },
+                { label: "Trio", count: data.counts.trio_variants },
+              ]}
+              maxItems={3}
             />
             <DistributionChart
-              title="VCF chromosome distribution"
-              description="Variant counts extracted directly from uploaded VCF records."
-              items={data.vcf_content_distribution.chromosome.map((row) => ({
-                label: row.chromosome,
-                count: row.count,
-              }))}
-              maxItems={24}
-            />
-            <DistributionChart
-              title="VCF variant types"
-              description="Simple VCF alleles grouped by SNV, insertion, deletion, and related classes."
-              items={data.vcf_content_distribution.variant_type}
-              maxItems={10}
-            />
-            <DistributionChart
-              title="VCF variants by patient"
-              description="Total parsed VCF variants grouped by patient lab number."
-              items={data.vcf_content_distribution.by_patient.map((row) => ({
+              title="Sample variant counts"
+              items={data.sample_variant_counts.map((row) => ({
                 label: row.lab_number,
-                count: row.variant_count,
+                count: row.total_count,
               }))}
-              maxItems={12}
+              maxItems={15}
+            />
+            <DistributionChart
+              title="Reported variant classes (C/I/A/N)"
+              items={data.reported_variant_distribution}
+              maxItems={4}
             />
             <DistributionChart
               title="Chromosome distribution"
-              description="Variant counts summarized by chromosome from singleton and trio findings."
               items={data.chromosome_distribution.map((row) => ({
                 label: row.chromosome,
                 count: row.count,
@@ -314,16 +321,16 @@ export default function DescriptiveStats() {
             />
             <DistributionChart
               title="Top genes"
-              description="Most frequently referenced genes in the current dataset."
               items={data.top_genes.map((row) => ({
-                label: row.gene,
+                label: row.chromosome
+                  ? `${row.gene} (chr${row.chromosome})`
+                  : row.gene,
                 count: row.count,
               }))}
               maxItems={15}
             />
             <DistributionChart
               title="Top keywords"
-              description="Common terms extracted from titles, classifications, and review comments."
               items={data.top_keywords.map((row) => ({
                 label: row.keyword,
                 count: row.count,
@@ -332,7 +339,6 @@ export default function DescriptiveStats() {
             />
             <DistributionChart
               title="Top variant entries"
-              description="Repeated chr:pos and ref/alt combinations in the local variant set."
               items={data.top_variants.map((row) => ({
                 label: row.variant,
                 count: row.count,

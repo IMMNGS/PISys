@@ -387,6 +387,7 @@ export interface CountByVariant {
 export interface CountByGene {
   gene: string;
   count: number;
+  chromosome?: string | null;
 }
 
 export interface CountByKeyword {
@@ -406,6 +407,14 @@ export interface VcfPatientVariantSummary {
   variant_count: number;
 }
 
+export interface SampleVariantCount {
+  patient_id: number;
+  lab_number: string;
+  singleton_count: number;
+  trio_count: number;
+  total_count: number;
+}
+
 export interface InsightSummaryResponse {
   counts: InsightCountSummary;
   demographic_distribution: {
@@ -423,6 +432,8 @@ export interface InsightSummaryResponse {
     by_patient: VcfPatientVariantSummary[];
   };
   chromosome_distribution: CountByChromosome[];
+  reported_variant_distribution: CountByLabel[];
+  sample_variant_counts: SampleVariantCount[];
   top_variants: CountByVariant[];
   top_genes: CountByGene[];
   top_keywords: CountByKeyword[];
