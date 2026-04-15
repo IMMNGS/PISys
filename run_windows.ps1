@@ -9,11 +9,11 @@ $ErrorActionPreference = 'Stop'
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
 
-function Write-Info($Message) { Write-Host "[HA] $Message" -ForegroundColor Cyan }
-function Write-Ok($Message)   { Write-Host "[HA] $Message" -ForegroundColor Green }
-function Write-Warn($Message) { Write-Host "[HA] $Message" -ForegroundColor Yellow }
+function Write-Info($Message) { Write-Host "[PISys] $Message" -ForegroundColor Cyan }
+function Write-Ok($Message)   { Write-Host "[PISys] $Message" -ForegroundColor Green }
+function Write-Warn($Message) { Write-Host "[PISys] $Message" -ForegroundColor Yellow }
 function Fail($Message) {
-    Write-Host "[HA] $Message" -ForegroundColor Red
+    Write-Host "[PISys] $Message" -ForegroundColor Red
     exit 1
 }
 

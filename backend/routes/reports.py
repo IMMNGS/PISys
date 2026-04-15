@@ -1,8 +1,8 @@
 """Report generation routes — preview data and Word document download.
 
 Ported from the legacy ``patient_info`` Flask app.  Functions such as
-``create_word_document``, ``_generate_table``, ``_build_qc_table``,
-``_get_test_description`` and ``_get_summary_result`` live here.
+``create_word_document``, ``generate_table``, ``generate_table_qc``,
+``get_test_description`` and ``get_summary_result`` live here.
 """
 
 import io
@@ -45,7 +45,7 @@ def _format_date(value):
         return str(value)
 
 
-def _get_test_description(test_type):
+def get_test_description(test_type):
     """Return the test description blurb."""
     base = (
         "In-house Immunological Disorders SuperPanel gene panel from WES was tested "
@@ -96,7 +96,7 @@ def _resolve_finding_type(patient, variant_model=None):
     return "".join(sorted(present))
 
 
-def _get_summary_result(patient):
+def get_summary_result(patient):
     """Generate summary result text based on the finding type and variant data.
 
     Args:
@@ -204,12 +204,7 @@ def _resolve_single_gene(patient):
     return ""
 
 
-def get_summary_result(patient):
-    """Public wrapper kept for compatibility with existing imports/tests."""
-    return _get_summary_result(patient)
-
-
-def _generate_table(doc, variants, include_inherited_from=False):
+def generate_table(doc, variants, include_inherited_from=False):
     """Insert a variant results table into a python-docx Document.
 
     Args:
@@ -332,12 +327,12 @@ def _generate_table(doc, variants, include_inherited_from=False):
             table.cell(3, i).text = str(val) if val is not None else ''
         table.cell(3, 4).merge(table.cell(3, 5)).merge(table.cell(3, 6))
 
-        _set_table_font_size(table, 9, idx_rows=[1, 3], idx_cols=[3])
+        set_table_font_size(table, 9, idx_rows=[1, 3], idx_cols=[3])
 
         doc.add_paragraph()
 
 
-def _set_table_border_color(table, color="FFFFFF"):
+def set_table_border_color(table, color="FFFFFF"):
     """Set all borders of a table to a specific color."""
     tbl = table._element
     tbl_pr = tbl.tblPr
@@ -356,7 +351,7 @@ def _set_table_border_color(table, color="FFFFFF"):
         border.set(qn("w:color"), color)
 
 
-def _set_table_font_size(table, size_pt, idx_rows=None, idx_cols=None):
+def set_table_font_size(table, size_pt, idx_rows=None, idx_cols=None):
     """Adjust run font size for selected table cells."""
     from docx.shared import Pt
 
@@ -371,7 +366,7 @@ def _set_table_font_size(table, size_pt, idx_rows=None, idx_cols=None):
                     run.font.size = Pt(size_pt)
 
 
-def _build_demographic_table(doc, patient):
+def generate_table_dmg(doc, patient):
     """Add patient header block table matching patient_info3 layout."""
     from docx.shared import Pt, Inches
 
@@ -417,10 +412,10 @@ def _build_demographic_table(doc, patient):
         if idx == 0 and val_cell.paragraphs and val_cell.paragraphs[0].runs:
             val_cell.paragraphs[0].runs[0].bold = True
 
-    _set_table_border_color(table, "FFFFFF")
+    set_table_border_color(table, "FFFFFF")
     doc.add_paragraph()
 
-def _build_qc_table(doc):
+def generate_table_qc(doc):
         """Insert the Sequencing Performance Metrics QC table."""
         from docx.shared import Pt, Inches
 
@@ -496,7 +491,7 @@ def create_word_document(
         style.font.name = "Calibri"
         style.font.size = Pt(12)
 
-        _build_demographic_table(doc, patient)
+        generate_table_dmg(doc, patient)
 
         # Separator
         p = doc.add_paragraph()
@@ -507,8 +502,8 @@ def create_word_document(
             ("SPECIMEN", "EDTA blood"),
             ("CLINICAL HISTORY", patient.clinical_history or ""),
             ("TYPE OF TESTING REQUESTED", patient.type_of_test or ""),
-            ("TEST DESCRIPTION", test_process or _get_test_description(test_type)),
-            ("SUMMARY OF RESULT(S)", _get_summary_result(patient)),
+            ("TEST DESCRIPTION", test_process or get_test_description(test_type)),
+            ("SUMMARY OF RESULT(S)", get_summary_result(patient)),
         ]
         for label, value in summary_sections:
             p = doc.add_paragraph()
@@ -532,7 +527,7 @@ def create_word_document(
             doc.add_page_break()
             p = doc.add_paragraph()
             p.add_run("RESULTS:").bold = True
-            _generate_table(doc, c_variants, include_inherited_from=is_trio)
+            generate_table(doc, c_variants, include_inherited_from=is_trio)
 
         # Additional findings (A)
         a_variants = VariantModel.query.filter_by(
@@ -542,7 +537,7 @@ def create_word_document(
             doc.add_page_break()
             p = doc.add_paragraph()
             p.add_run("Additional Findings:").bold = True
-            _generate_table(doc, a_variants, include_inherited_from=is_trio)
+            generate_table(doc, a_variants, include_inherited_from=is_trio)
 
         # Interpretation text based on finding type
         if "A" in finding_type:
@@ -613,10 +608,10 @@ def create_word_document(
             p.add_run(
                 "SUMMARY LIST OF OTHER INCIDENTAL FINDINGS WITHIN THE PANEL:"
             ).bold = True
-            _generate_table(doc, i_variants, include_inherited_from=is_trio)
+            generate_table(doc, i_variants, include_inherited_from=is_trio)
 
         # QC table
-        _build_qc_table(doc)
+        generate_table_qc(doc)
 
         # Target region and gene list page
         doc.add_page_break()
@@ -788,7 +783,7 @@ def report_preview():
         ),
         "variants": [v.to_dict() for v in variants],
         "defaults": {
-            "test_process": _get_test_description(test_type),
+            "test_process": get_test_description(test_type),
             "disclaimer": "\n".join(f"({i}) {d}" for i, d in enumerate(DISCLAIMERS, 1)),
             "references": (
                 "IUSI expert committee: Journal of clinical immunology vol. 40,1 "
@@ -844,8 +839,8 @@ def generate_report():
         return jsonify({"error": f"Report generation failed: {str(e)}"}), 500
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    im_part = patient.im_lab_number or "NA"
-    filename = f"patient_info_{patient.lab_number}_{timestamp}_{im_part}.docx"
+    # Keep filename format aligned with legacy patient_info3 output.
+    filename = f"patient_info_{patient.lab_number}_{timestamp}_{patient.im_lab_number}.docx"
 
     return send_file(
         buf,

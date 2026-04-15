@@ -5,7 +5,7 @@ set "SCRIPT_DIR=%~dp0"
 set "PS1=%SCRIPT_DIR%run_windows.ps1"
 
 if not exist "%PS1%" (
-  echo [HA] Missing launcher script: %PS1%
+  echo [PISys] Missing launcher script: %PS1%
   exit /b 1
 )
 
@@ -23,8 +23,8 @@ if /I "%~1"=="setup" (
 ) else if /I "%~1"=="--help" (
   set "PS_ARGS=%PS_ARGS% -?"
 ) else (
-  echo [HA] Unknown argument: %~1
-  echo [HA] Usage: run_windows.bat [setup^|development^|production]
+  echo [PISys] Unknown argument: %~1
+  echo [PISys] Usage: run_windows.bat [setup^|development^|production]
   exit /b 2
 )
 shift
@@ -32,10 +32,10 @@ goto parse_args
 
 :done_args
 if "%PS_ARGS%"=="" (
-  echo [HA] Select mode:
-  echo [HA]   1^) setup
-  echo [HA]   2^) development
-  echo [HA]   3^) production
+  echo [PISys] Select mode:
+  echo [PISys]   1^) setup
+  echo [PISys]   2^) development
+  echo [PISys]   3^) production
   choice /C 123 /N /M "Enter choice [1-3]: "
   if errorlevel 3 (
     set "PS_ARGS= -Mode production"
@@ -46,10 +46,10 @@ if "%PS_ARGS%"=="" (
   )
 )
 
-echo [HA] Launching Windows setup/runner...
+echo [PISys] Launching Windows setup/runner...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %PS_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 echo.
-echo [HA] Press any key to close this window.
+echo [PISys] Press any key to close this window.
 pause >nul
 exit /b %EXIT_CODE%
