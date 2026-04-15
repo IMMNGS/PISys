@@ -55,6 +55,84 @@ def _coerce_patient_date(value):
     return None
 
 
+def _normalize_patient_sex_age(row):
+    """Populate ``sex``/``age`` from compact values such as ``M/8``.
+
+    Files may contain dedicated ``sex`` and ``age`` columns, or a combined
+    ``sex/age``-style column. This normalizer fills missing canonical fields
+    without overriding explicitly provided separate values.
+    """
+    normalized = dict(row or {})
+
+    def _is_blank(value):
+        if value is None:
+            return True
+        if isinstance(value, float) and math.isnan(value):
+            return True
+        if isinstance(value, str) and value.strip() == "":
+            return True
+        return False
+
+    def _normalize_sex_token(token):
+        if token is None:
+            return None
+        text = str(token).strip().upper()
+        if text in {"M", "MALE", "BOY"}:
+            return "M"
+        if text in {"F", "FEMALE", "GIRL"}:
+            return "F"
+        return None
+
+    def _split_compact(value):
+        if _is_blank(value):
+            return None, None
+        text = str(value).strip()
+        if "/" not in text:
+            return None, None
+        left, right = [part.strip() for part in text.split("/", 1)]
+        if not left or not right:
+            return None, None
+
+        left_sex = _normalize_sex_token(left)
+        right_sex = _normalize_sex_token(right)
+        if left_sex:
+            return left_sex, right
+        if right_sex:
+            return right_sex, left
+        return None, None
+
+    current_sex = normalized.get("sex")
+    current_age = normalized.get("age")
+
+    combined_candidates = [
+        normalized.get("sex/age"),
+        normalized.get("sex_age"),
+        current_sex,
+        current_age,
+    ]
+
+    parsed_sex = None
+    parsed_age = None
+    for candidate in combined_candidates:
+        s_val, a_val = _split_compact(candidate)
+        if s_val and a_val:
+            parsed_sex, parsed_age = s_val, a_val
+            break
+
+    sex_has_compact_value = isinstance(current_sex, str) and "/" in current_sex
+    if (_is_blank(current_sex) or sex_has_compact_value) and parsed_sex:
+        normalized["sex"] = parsed_sex
+    elif not _is_blank(current_sex):
+        normalized_sex = _normalize_sex_token(current_sex)
+        if normalized_sex:
+            normalized["sex"] = normalized_sex
+
+    if _is_blank(current_age) and parsed_age:
+        normalized["age"] = parsed_age
+
+    return normalized
+
+
 def _extract_variant_keys_from_vcf(path):
     """Parse one .vcf/.vcf.gz file and return a set of (chrom, pos, ref, alt)."""
     opener = gzip.open if str(path).lower().endswith(".gz") else open
@@ -312,6 +390,7 @@ def upload_patients_xlsx():
         return False
 
     for row in rows:
+        row = _normalize_patient_sex_age(row)
         lab = row.get("lab_number")
         if not lab:
             continue
