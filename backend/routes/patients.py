@@ -169,6 +169,7 @@ def get_patients():
         query = query.filter(
             db.or_(
                 Patient.lab_number.ilike(like),
+                Patient.im_lab_number.ilike(like),
                 Patient.name.ilike(like),
                 Patient.type_of_test.ilike(like),
                 Patient.type_of_findings.ilike(like),
@@ -195,13 +196,19 @@ def get_patient_options():
         query = query.filter(
             db.or_(
                 Patient.lab_number.ilike(like),
+                Patient.im_lab_number.ilike(like),
                 Patient.name.ilike(like),
             )
         )
     query = query.order_by(Patient.id)
     total = query.count()
     patients = query.offset(offset).limit(limit).all()
-    items = [{"id": p.id, "lab_number": p.lab_number, "name": p.name}
+    items = [{
+        "id": p.id,
+        "lab_number": p.lab_number,
+        "im_lab_number": p.im_lab_number,
+        "name": p.name,
+    }
              for p in patients]
     return jsonify({"items": items, "total": total})
 

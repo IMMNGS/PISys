@@ -12,6 +12,7 @@ from backend.routes.helpers import (
     _parse_variant_xlsx_rows,
     _normalize_variant_field,
     normalize_variant_row,
+    variant_upload_id_mismatch_message,
 )
 
 singletons_bp = Blueprint("singletons", __name__)
@@ -98,6 +99,10 @@ def upload_singleton_xlsx(patient_id):
     f = request.files["file"]
     if not f.filename or not f.filename.lower().endswith((".xlsx", ".xls")):
         return jsonify({"error": "Only .xlsx / .xls files are accepted"}), 400
+
+    mismatch_error = variant_upload_id_mismatch_message(f, patient, expect_trio=False)
+    if mismatch_error:
+        return jsonify({"error": mismatch_error}), 400
 
     rows = _parse_variant_xlsx_rows(f)
     if not rows:

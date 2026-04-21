@@ -8,6 +8,7 @@ import {
   upsertFreeTextTerm,
   fetchPatientOptions,
   assignTerms,
+  removeTerms,
   refreshHPOTerms,
 } from "../api/client";
 import type { DiseaseTerm } from "../types";
@@ -83,7 +84,7 @@ export default function ManageHpo() {
       const result = await fetchPatientOptions(search, limit, offset);
       const items = result.items.map((p) => ({
         id: p.id,
-        label: `${p.lab_number} \u2014 ${p.name ?? "N/A"}`,
+        label: `${p.im_lab_number ?? p.lab_number} \u2014 ${p.name ?? "N/A"}${p.im_lab_number ? ` (Lab ${p.lab_number})` : ""}`,
       }));
       // Track labels for selected tags
       for (const item of items) {
@@ -156,6 +157,18 @@ export default function ManageHpo() {
       clearSelections();
     } catch {
       setAssignMsg({ type: "danger", text: "Failed to assign terms." });
+    }
+  };
+
+  const handleRemove = async () => {
+    try {
+      const result = await removeTerms(
+        [...selectedPatientIds],
+        [...selectedTermIds],
+      );
+      setAssignMsg({ type: "success", text: result.message });
+    } catch {
+      setAssignMsg({ type: "danger", text: "Failed to remove terms." });
     }
   };
 
@@ -369,6 +382,14 @@ export default function ManageHpo() {
         >
           Assign Selected Terms → Selected Patients ({selectedTermIds.size}{" "}
           terms, {selectedPatientIds.size} patients)
+        </button>
+        <button
+          className="btn btn-outline-danger btn-lg"
+          disabled={!canAssign}
+          onClick={handleRemove}
+          style={{ marginLeft: "0.75rem" }}
+        >
+          Remove Selected Terms from Selected Patients
         </button>
       </div>
 

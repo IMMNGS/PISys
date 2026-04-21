@@ -11,6 +11,18 @@ from backend.models import db, DiseaseTerm, HPOTerm, Patient
 disease_terms_bp = Blueprint("disease_terms", __name__)
 
 
+def _to_int_list(values):
+    if not isinstance(values, list):
+        return []
+    out = []
+    for value in values:
+        try:
+            out.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _normalize_term(text: str) -> str:
     return " ".join((text or "").strip().lower().split())
 
@@ -278,8 +290,13 @@ def assign_disease_terms_to_patients():
     Body: {"patient_ids": [1,2], "disease_term_ids": [4,5]}
     """
     data = request.get_json() or {}
-    patient_ids = data.get("patient_ids", [])
-    disease_term_ids = data.get("disease_term_ids", [])
+    patient_ids = _to_int_list(data.get("patient_ids", []))
+    disease_term_ids = _to_int_list(data.get("disease_term_ids", []))
+
+    if not patient_ids:
+        return jsonify({"error": "patient_ids is required"}), 400
+    if not disease_term_ids:
+        return jsonify({"error": "disease_term_ids is required"}), 400
 
     patients = Patient.query.filter(Patient.id.in_(patient_ids)).all()
     terms = DiseaseTerm.query.filter(DiseaseTerm.id.in_(disease_term_ids)).all()
@@ -299,6 +316,39 @@ def assign_disease_terms_to_patients():
     }), 200
 
 
+@disease_terms_bp.route("/patients/remove_disease_terms", methods=["POST"])
+def remove_disease_terms_from_patients():
+    """Remove one or more free-text disease terms from one or more patients.
+
+    Body: {"patient_ids": [1,2], "disease_term_ids": [4,5]}
+    """
+    data = request.get_json() or {}
+    patient_ids = _to_int_list(data.get("patient_ids", []))
+    disease_term_ids = _to_int_list(data.get("disease_term_ids", []))
+
+    if not patient_ids:
+        return jsonify({"error": "patient_ids is required"}), 400
+    if not disease_term_ids:
+        return jsonify({"error": "disease_term_ids is required"}), 400
+
+    patients = Patient.query.filter(Patient.id.in_(patient_ids)).all()
+    disease_terms = DiseaseTerm.query.filter(DiseaseTerm.id.in_(disease_term_ids)).all()
+    terms_map = {t.id: t for t in disease_terms}
+
+    removed = 0
+    for patient in patients:
+        for term_id in disease_term_ids:
+            term = terms_map.get(term_id)
+            if term and term in patient.disease_terms:
+                patient.disease_terms.remove(term)
+                removed += 1
+
+    db.session.commit()
+    return jsonify({
+        "message": f"Removed {removed} disease term(s) across {len(patients)} patient(s)."
+    }), 200
+
+
 @disease_terms_bp.route("/patients/assign_terms", methods=["POST"])
 def assign_terms_to_patients():
     """Assign combined term IDs to patients.
@@ -308,8 +358,13 @@ def assign_terms_to_patients():
       - negative id  => disease_terms.id (absolute value)
     """
     data = request.get_json() or {}
-    patient_ids = data.get("patient_ids", [])
-    term_ids = data.get("term_ids", [])
+    patient_ids = _to_int_list(data.get("patient_ids", []))
+    term_ids = _to_int_list(data.get("term_ids", []))
+
+    if not patient_ids:
+        return jsonify({"error": "patient_ids is required"}), 400
+    if not term_ids:
+        return jsonify({"error": "term_ids is required"}), 400
 
     hpo_ids = [int(i) for i in term_ids if isinstance(i, int) and i > 0]
     disease_ids = [abs(int(i)) for i in term_ids if isinstance(i, int) and i < 0]
@@ -347,6 +402,61 @@ def assign_terms_to_patients():
         ),
         "hpo_added": hpo_added,
         "disease_added": disease_added,
+    }), 200
+
+
+@disease_terms_bp.route("/patients/remove_terms", methods=["POST"])
+def remove_terms_from_patients():
+    """Remove combined term IDs from one or more patients.
+
+    Body: {"patient_ids": [1,2], "term_ids": [12, -3]}
+      - positive id  => hpo_terms.id
+      - negative id  => disease_terms.id (absolute value)
+    """
+    data = request.get_json() or {}
+    patient_ids = _to_int_list(data.get("patient_ids", []))
+    term_ids = _to_int_list(data.get("term_ids", []))
+
+    if not patient_ids:
+        return jsonify({"error": "patient_ids is required"}), 400
+    if not term_ids:
+        return jsonify({"error": "term_ids is required"}), 400
+
+    hpo_ids = {int(i) for i in term_ids if i > 0}
+    disease_ids = {abs(int(i)) for i in term_ids if i < 0}
+
+    patients = Patient.query.filter(Patient.id.in_(patient_ids)).all()
+    hpo_terms = HPOTerm.query.filter(HPOTerm.id.in_(hpo_ids)).all() if hpo_ids else []
+    disease_terms = (
+        DiseaseTerm.query.filter(DiseaseTerm.id.in_(disease_ids)).all()
+        if disease_ids else []
+    )
+
+    hpo_map = {t.id: t for t in hpo_terms}
+    disease_map = {t.id: t for t in disease_terms}
+
+    hpo_removed = 0
+    disease_removed = 0
+    for patient in patients:
+        for hpo_id in hpo_ids:
+            term = hpo_map.get(hpo_id)
+            if term and term in patient.hpo_terms:
+                patient.hpo_terms.remove(term)
+                hpo_removed += 1
+        for disease_id in disease_ids:
+            term = disease_map.get(disease_id)
+            if term and term in patient.disease_terms:
+                patient.disease_terms.remove(term)
+                disease_removed += 1
+
+    db.session.commit()
+    return jsonify({
+        "message": (
+            f"Removed {hpo_removed} HPO term(s) and {disease_removed} free-text term(s) "
+            f"across {len(patients)} patient(s)."
+        ),
+        "hpo_removed": hpo_removed,
+        "disease_removed": disease_removed,
     }), 200
 
 

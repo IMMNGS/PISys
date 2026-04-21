@@ -196,6 +196,13 @@ function trimOrUndefined(value: string): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function displayPatientId(
+  patient: Pick<PatientInfo, "lab_number" | "im_lab_number">,
+): string {
+  const im = (patient.im_lab_number || "").trim();
+  return im || patient.lab_number;
+}
+
 /* ── Component ────────────────────────────────────────────────────────── */
 export default function SelectPatients() {
   const [patients, setPatients] = useState<PatientInfo[]>([]);
@@ -452,7 +459,7 @@ export default function SelectPatients() {
   };
 
   const handleDeletePatient = async (patient: PatientInfo) => {
-    if (!confirm(`Delete patient ${patient.lab_number}?`)) return;
+    if (!confirm(`Delete patient ${displayPatientId(patient)}?`)) return;
     setActionMsg(null);
     try {
       await deletePatient(patient.id);
@@ -467,7 +474,7 @@ export default function SelectPatients() {
       await loadPatients(filters);
       setActionMsg({
         type: "success",
-        msg: `Patient ${patient.lab_number} deleted.`,
+        msg: `Patient ${displayPatientId(patient)} deleted.`,
       });
     } catch (e: unknown) {
       setActionMsg({
@@ -487,7 +494,7 @@ export default function SelectPatients() {
 
     try {
       const failedIds = new Set<number>();
-      const idToLab = new Map(patients.map((p) => [p.id, p.lab_number]));
+      const idToLab = new Map(patients.map((p) => [p.id, displayPatientId(p)]));
 
       for (const id of selectedIds) {
         try {
@@ -1152,8 +1159,8 @@ export default function SelectPatients() {
                   onChange={toggleAll}
                 />
               </th>
+              <th>Patient ID</th>
               <th>Lab Number</th>
-              <th>IM Lab Number</th>
               <th>Name</th>
               <th>Sex</th>
               <th>Age</th>
@@ -1167,16 +1174,16 @@ export default function SelectPatients() {
                 <input
                   type="text"
                   placeholder="Filter…"
-                  value={filters.lab_number}
-                  onChange={(e) => setFilter("lab_number", e.target.value)}
+                  value={filters.im_lab_number}
+                  onChange={(e) => setFilter("im_lab_number", e.target.value)}
                 />
               </th>
               <th>
                 <input
                   type="text"
                   placeholder="Filter…"
-                  value={filters.im_lab_number}
-                  onChange={(e) => setFilter("im_lab_number", e.target.value)}
+                  value={filters.lab_number}
+                  onChange={(e) => setFilter("lab_number", e.target.value)}
                 />
               </th>
               <th>
@@ -1261,10 +1268,12 @@ export default function SelectPatients() {
                   </td>
                   <td>
                     <Link to={`/patients/${p.id}`}>
-                      <code>{p.lab_number}</code>
+                      <code title={`Lab ${p.lab_number}`}>
+                        {displayPatientId(p)}
+                      </code>
                     </Link>
                   </td>
-                  <td>{p.im_lab_number ?? "—"}</td>
+                  <td>{p.lab_number ?? "—"}</td>
                   <td>{p.name ?? "—"}</td>
                   <td>{p.sex ?? "—"}</td>
                   <td>
@@ -1401,7 +1410,7 @@ export default function SelectPatients() {
               <table>
                 <thead>
                   <tr>
-                    <th>Lab #</th>
+                    <th>Patient ID</th>
                     <th>Name</th>
                     <th>Test</th>
                     <th>Findings</th>
@@ -1416,7 +1425,9 @@ export default function SelectPatients() {
                     <tr key={p.id}>
                       <td>
                         <Link to={`/patients/${p.id}`}>
-                          <code>{p.lab_number}</code>
+                          <code title={`Lab ${p.lab_number}`}>
+                            {displayPatientId(p)}
+                          </code>
                         </Link>
                       </td>
                       <td>{p.name ?? "—"}</td>

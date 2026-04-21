@@ -280,6 +280,7 @@ export function fetchPatients(search = ""): Promise<PatientInfo[]> {
 export interface PatientOption {
   id: number;
   lab_number: string;
+  im_lab_number: string | null;
   name: string | null;
 }
 
@@ -599,6 +600,45 @@ export function assignTerms(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ patient_ids: patientIds, term_ids: termIds }),
+  });
+}
+
+export function assignDiseaseTerms(
+  patientIds: number[],
+  diseaseTermIds: number[],
+): Promise<{ message: string }> {
+  return json(`${BASE}/patients/assign_disease_terms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patient_ids: patientIds,
+      disease_term_ids: diseaseTermIds,
+    }),
+  });
+}
+
+export function removeTerms(
+  patientIds: number[],
+  termIds: number[],
+): Promise<{ message: string; hpo_removed: number; disease_removed: number }> {
+  return json(`${BASE}/patients/remove_terms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patient_ids: patientIds, term_ids: termIds }),
+  });
+}
+
+export function removeDiseaseTerms(
+  patientIds: number[],
+  diseaseTermIds: number[],
+): Promise<{ message: string }> {
+  return json(`${BASE}/patients/remove_disease_terms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patient_ids: patientIds,
+      disease_term_ids: diseaseTermIds,
+    }),
   });
 }
 
