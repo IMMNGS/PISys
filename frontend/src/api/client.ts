@@ -229,6 +229,24 @@ export function fetchDiseaseTerms(
   return json(`${BASE}/disease_terms?${params}`);
 }
 
+export interface DiseaseTermOption {
+  id: number;
+  term_name: string;
+}
+
+export function fetchDiseaseTermOptions(
+  search = "",
+  limit = 20,
+  offset = 0,
+): Promise<PaginatedOptions<DiseaseTermOption>> {
+  const params = new URLSearchParams({
+    search,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return json(`${BASE}/disease_terms/options?${params}`);
+}
+
 export function fetchDiseaseTermById(termId: number): Promise<DiseaseTerm> {
   return json(`${BASE}/disease_terms/${termId}`);
 }
@@ -257,7 +275,10 @@ export function deleteDiseaseTerm(
   return json(`${BASE}/disease_terms/${termId}`, { method: "DELETE" });
 }
 
-export function upsertFreeTextTerm(termName: string): Promise<{
+export function upsertFreeTextTerm(
+  termName: string,
+  notes?: string,
+): Promise<{
   id: number;
   term_id: number;
   term_type: "disease";
@@ -266,7 +287,7 @@ export function upsertFreeTextTerm(termName: string): Promise<{
   return json(`${BASE}/terms/free_text`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ term_name: termName }),
+    body: JSON.stringify({ term_name: termName, notes }),
   });
 }
 
@@ -280,6 +301,7 @@ export function fetchPatients(search = ""): Promise<PatientInfo[]> {
 export interface PatientOption {
   id: number;
   lab_number: string;
+  im_lab_number: string | null;
   name: string | null;
 }
 
@@ -387,10 +409,12 @@ export interface CountByVariant {
 export interface CountByGene {
   gene: string;
   count: number;
+  chromosome?: string | null;
 }
 
-export interface CountByKeyword {
-  keyword: string;
+export interface CountByTerm {
+  term_type: "hpo" | "disease";
+  term: string;
   count: number;
 }
 
@@ -404,6 +428,14 @@ export interface VcfPatientVariantSummary {
   lab_number: string;
   file_count: number;
   variant_count: number;
+}
+
+export interface SampleVariantCount {
+  patient_id: number;
+  lab_number: string;
+  singleton_count: number;
+  trio_count: number;
+  total_count: number;
 }
 
 export interface InsightSummaryResponse {
@@ -423,9 +455,11 @@ export interface InsightSummaryResponse {
     by_patient: VcfPatientVariantSummary[];
   };
   chromosome_distribution: CountByChromosome[];
+  reported_variant_distribution: CountByLabel[];
+  sample_variant_counts: SampleVariantCount[];
   top_variants: CountByVariant[];
   top_genes: CountByGene[];
-  top_keywords: CountByKeyword[];
+  top_terms: CountByTerm[];
 }
 
 export interface ExplainResponse {
@@ -588,6 +622,60 @@ export function assignTerms(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ patient_ids: patientIds, term_ids: termIds }),
+  });
+}
+
+export function assignDiseaseTerms(
+  patientIds: number[],
+  diseaseTermIds: number[],
+): Promise<{ message: string }> {
+  return json(`${BASE}/patients/assign_disease_terms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patient_ids: patientIds,
+      disease_term_ids: diseaseTermIds,
+    }),
+  });
+}
+
+export function removeTerms(
+  patientIds: number[],
+  termIds: number[],
+): Promise<{ message: string; hpo_removed: number; disease_removed: number }> {
+  return json(`${BASE}/patients/remove_terms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patient_ids: patientIds, term_ids: termIds }),
+  });
+}
+
+export function removeDiseaseTerms(
+  patientIds: number[],
+  diseaseTermIds: number[],
+): Promise<{ message: string }> {
+  return json(`${BASE}/patients/remove_disease_terms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patient_ids: patientIds,
+      disease_term_ids: diseaseTermIds,
+    }),
+  });
+}
+
+export function fetchPatientDiseaseTerms(
+  patientId: number,
+): Promise<DiseaseTerm[]> {
+  return json(`${BASE}/patients/${patientId}/disease_terms`);
+}
+
+export function removePatientDiseaseTerm(
+  patientId: number,
+  termId: number,
+): Promise<{ message: string }> {
+  return json(`${BASE}/patients/${patientId}/disease_terms/${termId}`, {
+    method: "DELETE",
   });
 }
 

@@ -3,7 +3,7 @@
 All logic in this module is local-only and does not call external services.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date
 import gzip
 import os
@@ -39,21 +39,18 @@ def _split_genes(gene_names: str | None) -> list[str]:
     return [p.strip().upper() for p in parts if p.strip()]
 
 
-def _tokenize_keywords(*values: str | None) -> list[str]:
-    stop_words = {
-        "the", "and", "for", "with", "from", "that", "this", "variant",
-        "variants", "patient", "patients", "gene", "genes", "unknown",
-        "likely", "pathogenic", "benign", "vus", "inherited", "review",
-        "comment", "on", "of", "to", "in", "is", "are", "a", "an",
-    }
-    merged = " ".join((v or "") for v in values)
-    raw = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", merged)
-    return [t.lower() for t in raw if t.lower() not in stop_words]
-
-
 def _normalize_bucket_label(value: str | None, fallback: str = "Unknown") -> str:
     text = (value or "").strip()
     return text if text else fallback
+
+
+def _normalize_reportable_variant(value: str | None) -> str:
+    text = (value or "").strip().upper()
+    if not text:
+        return "Unknown"
+    if text in {"C", "I", "A", "N"}:
+        return text
+    return text[0] if text[0] in {"C", "I", "A", "N"} else "Unknown"
 
 
 def _normalize_sex(value: str | None) -> str:
@@ -229,7 +226,9 @@ def get_summary():
     chromosome_counter = Counter()
     variant_counter = Counter()
     gene_counter = Counter()
-    keyword_counter = Counter()
+    gene_chromosome_counter = defaultdict(Counter)
+    term_counter = Counter()
+    reportable_variant_counter = Counter()
     sex_counter = Counter()
     age_counter = Counter()
     ethnicity_counter = Counter()
@@ -242,6 +241,8 @@ def get_summary():
     vcf_content_variant_count = 0
     readable_vcf_files = 0
     skipped_vcf_files = 0
+    sample_singleton_counter = Counter()
+    sample_trio_counter = Counter()
 
     patient_lab_numbers = {
         patient.id: patient.lab_number
@@ -253,6 +254,8 @@ def get_summary():
         if chrom:
             chromosome_counter[chrom] += 1
 
+        reportable_variant_counter[_normalize_reportable_variant(getattr(row, "reportable_variant", None))] += 1
+
         chr_pos = (getattr(row, "chr_pos", None) or "").strip()
         ref_alt = (getattr(row, "ref_alt", None) or "").strip()
         if chr_pos or ref_alt:
@@ -260,18 +263,29 @@ def get_summary():
 
         for gene in _split_genes(getattr(row, "gene_names", None)):
             gene_counter[gene] += 1
+            if chrom:
+                gene_chromosome_counter[gene][chrom] += 1
 
-        for keyword in _tokenize_keywords(
-            getattr(row, "title", None),
-            getattr(row, "classification", None),
-            getattr(row, "second_review_comment", None),
-        ):
-            keyword_counter[keyword] += 1
+    for row in singletons:
+        sample_singleton_counter[row.patient_id] += 1
+
+    for row in trios:
+        sample_trio_counter[row.patient_id] += 1
 
     for patient in patient_rows:
         sex_counter[_normalize_sex(getattr(patient, "sex", None))] += 1
         ethnicity_counter[_normalize_bucket_label(getattr(patient, "ethnicity", None))] += 1
         test_counter[_normalize_bucket_label(getattr(patient, "type_of_test", None))] += 1
+
+        for hpo_term in patient.hpo_terms:
+            term_name = (hpo_term.term_name or "").strip()
+            if term_name:
+                term_counter[("hpo", term_name)] += 1
+
+        for disease_term in patient.disease_terms:
+            term_name = (disease_term.term_name or "").strip()
+            if term_name:
+                term_counter[("disease", term_name)] += 1
 
         age_years = _parse_age_years(getattr(patient, "age", None), getattr(patient, "age_unit", None))
         age_bucket = _bucket_age(age_years)
@@ -305,6 +319,25 @@ def get_summary():
             "file_count": vcf_patient_file_counter.get(patient_id, 0),
             "variant_count": variant_count,
         })
+
+    sample_variant_counts = []
+    for patient in patient_rows:
+        singleton_count = sample_singleton_counter.get(patient.id, 0)
+        trio_count = sample_trio_counter.get(patient.id, 0)
+        total_count = singleton_count + trio_count
+        if total_count == 0:
+            continue
+        sample_variant_counts.append({
+            "patient_id": patient.id,
+            "lab_number": patient.lab_number,
+            "singleton_count": singleton_count,
+            "trio_count": trio_count,
+            "total_count": total_count,
+        })
+
+    sample_variant_counts.sort(
+        key=lambda item: (-item["total_count"], item["lab_number"])
+    )
 
     payload = {
         "filters": {
@@ -361,17 +394,37 @@ def get_summary():
             {"chromosome": k, "count": v}
             for k, v in chromosome_counter.most_common(24)
         ],
+        "reported_variant_distribution": [
+            {
+                "label": label,
+                "count": reportable_variant_counter.get(label, 0),
+            }
+            for label in ["C", "I", "A", "N"]
+        ],
+        "sample_variant_counts": sample_variant_counts,
         "top_variants": [
             {"variant": k, "count": v}
             for k, v in variant_counter.most_common(30)
         ],
         "top_genes": [
-            {"gene": k, "count": v}
-            for k, v in gene_counter.most_common(30)
+            {
+                "gene": gene,
+                "count": count,
+                "chromosome": (
+                    gene_chromosome_counter[gene].most_common(1)[0][0]
+                    if gene_chromosome_counter.get(gene)
+                    else None
+                ),
+            }
+            for gene, count in gene_counter.most_common(30)
         ],
-        "top_keywords": [
-            {"keyword": k, "count": v}
-            for k, v in keyword_counter.most_common(40)
+        "top_terms": [
+            {
+                "term_type": term_type,
+                "term": term,
+                "count": count,
+            }
+            for (term_type, term), count in term_counter.most_common(40)
         ],
     }
     return jsonify(payload)

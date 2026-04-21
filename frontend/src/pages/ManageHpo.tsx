@@ -3,11 +3,16 @@ import {
   fetchCombinedTermOptions,
   fetchHPOTermById,
   fetchDiseaseTermById,
+  fetchDiseaseTerms,
   updateDiseaseTerm,
   deleteDiseaseTerm,
   upsertFreeTextTerm,
   fetchPatientOptions,
+  fetchPatient,
   assignTerms,
+  removeTerms,
+  removePatientDiseaseTerm,
+  removeHPO,
   refreshHPOTerms,
 } from "../api/client";
 import type { DiseaseTerm } from "../types";
@@ -27,23 +32,51 @@ type DetailTerm =
   | { kind: "hpo"; value: HPOTerm }
   | { kind: "disease"; value: DiseaseTerm };
 
+type AssignedPatientTerm = {
+  term_id: number;
+  term_type: "hpo" | "disease";
+  term_name: string;
+  hpo_id?: string;
+};
+
 export default function ManageHpo() {
-  // ── Selection state ────────────────────────────────────────────────────
-  const [selectedTermIds, setSelectedTermIds] = useState<Set<number>>(
-    new Set(),
+  // ── Patient-first assignment state ─────────────────────────────────────
+  const [selectedPatientId, setSelectedPatientId] = useState<number | null>(
+    null,
   );
-  const [selectedTermLabels, setSelectedTermLabels] = useState<
+  const [selectedPatientLabel, setSelectedPatientLabel] = useState("");
+  const [patientOptionLabels, setPatientOptionLabels] = useState<
     Map<number, string>
   >(new Map());
-  const [selectedPatientIds, setSelectedPatientIds] = useState<Set<number>>(
-    new Set(),
-  );
-  const [selectedPatientLabels, setSelectedPatientLabels] = useState<
+  const [assignedTerms, setAssignedTerms] = useState<AssignedPatientTerm[]>([]);
+  const [assignedLoading, setAssignedLoading] = useState(false);
+  const [selectedAssignTermIds, setSelectedAssignTermIds] = useState<
+    Set<number>
+  >(new Set());
+  const [selectedAssignTermLabels, setSelectedAssignTermLabels] = useState<
     Map<number, string>
   >(new Map());
+  const [showManualDiseasePopup, setShowManualDiseasePopup] = useState(false);
+  const [manualDiseaseSearch, setManualDiseaseSearch] = useState("");
+  const [manualDiseaseItems, setManualDiseaseItems] = useState<DiseaseTerm[]>(
+    [],
+  );
+  const [manualDiseaseLoading, setManualDiseaseLoading] = useState(false);
+  const [manualDiseaseMsg, setManualDiseaseMsg] = useState<{
+    type: "success" | "danger";
+    text: string;
+  } | null>(null);
+  const [newManualDiseaseName, setNewManualDiseaseName] = useState("");
+  const [newManualDiseaseNotes, setNewManualDiseaseNotes] = useState("");
+  const [editingManualDiseaseId, setEditingManualDiseaseId] = useState<
+    number | null
+  >(null);
+  const [editingManualDiseaseName, setEditingManualDiseaseName] = useState("");
+  const [editingManualDiseaseNotes, setEditingManualDiseaseNotes] =
+    useState("");
 
   // ── Messages ───────────────────────────────────────────────────────────
-  const [assignMsg, setAssignMsg] = useState<{
+  const [patientTermMsg, setPatientTermMsg] = useState<{
     type: string;
     text: string;
   } | null>(null);
@@ -62,16 +95,17 @@ export default function ManageHpo() {
   );
 
   // ── Fetch callbacks for SearchableMultiSelect ─────────────────────────
-  const fetchTermItems = useCallback(
+  const fetchAssignTermItems = useCallback(
     async (search: string, limit: number, offset: number) => {
       const result = await fetchCombinedTermOptions(search, limit, offset);
       const items = result.items.map((t) => ({
         id: t.id,
         label: t.label,
       }));
-      // Track labels for selected tags
       for (const item of items) {
-        setSelectedTermLabels((prev) => new Map(prev).set(item.id, item.label));
+        setSelectedAssignTermLabels((prev) =>
+          new Map(prev).set(item.id, item.label),
+        );
       }
       return { items, total: result.total };
     },
@@ -83,11 +117,10 @@ export default function ManageHpo() {
       const result = await fetchPatientOptions(search, limit, offset);
       const items = result.items.map((p) => ({
         id: p.id,
-        label: `${p.lab_number} \u2014 ${p.name ?? "N/A"}`,
+        label: `${p.im_lab_number ?? p.lab_number} \u2014 ${p.name ?? "N/A"}${p.im_lab_number ? ` (Lab ${p.lab_number})` : ""}`,
       }));
-      // Track labels for selected tags
       for (const item of items) {
-        setSelectedPatientLabels((prev) =>
+        setPatientOptionLabels((prev) =>
           new Map(prev).set(item.id, item.label),
         );
       }
@@ -96,66 +129,244 @@ export default function ManageHpo() {
     [],
   );
 
-  // ── Term selection (HPO + free-text) ──────────────────────────────────
-  const toggleTerm = (id: number) => {
-    setSelectedTermIds((prev) => {
+  const toggleAssignTerm = (id: number) => {
+    setSelectedAssignTermIds((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
 
-  const removeTerm = (id: number) => {
-    setSelectedTermIds((prev) => {
+  const removeAssignTerm = (id: number) => {
+    setSelectedAssignTermIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
   };
 
-  const createFreeTextTerm = useCallback(async (text: string) => {
+  const createFreeTextDiseaseTerm = useCallback(async (text: string) => {
     const result = await upsertFreeTextTerm(text);
     const item = { id: result.id, label: result.label };
-    setSelectedTermLabels((prev) => new Map(prev).set(item.id, item.label));
+    setSelectedAssignTermLabels((prev) =>
+      new Map(prev).set(item.id, item.label),
+    );
     return item;
   }, []);
 
-  // ── Patient selection ──────────────────────────────────────────────────
-  const togglePatient = (id: number) => {
-    setSelectedPatientIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+  const loadManualDiseaseTerms = useCallback(async (searchText: string) => {
+    setManualDiseaseLoading(true);
+    try {
+      const data = await fetchDiseaseTerms(searchText, 1, 100);
+      setManualDiseaseItems(data.items);
+    } catch {
+      setManualDiseaseMsg({
+        type: "danger",
+        text: "Failed to load manual disease terms.",
+      });
+    } finally {
+      setManualDiseaseLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showManualDiseasePopup) return;
+    const timer = setTimeout(() => {
+      void loadManualDiseaseTerms(manualDiseaseSearch);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [showManualDiseasePopup, manualDiseaseSearch, loadManualDiseaseTerms]);
+
+  const toggleSelectedPatient = (id: number) => {
+    setSelectedPatientId((prev) => {
+      const next = prev === id ? null : id;
+      setSelectedPatientLabel(
+        next ? (patientOptionLabels.get(next) ?? "") : "",
+      );
       return next;
     });
   };
 
-  const removePatient = (id: number) => {
-    setSelectedPatientIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  };
+  const refreshAssignedTerms = useCallback(async (patientId: number) => {
+    setAssignedLoading(true);
+    try {
+      const patient = await fetchPatient(patientId);
+      const hpoTerms: AssignedPatientTerm[] = (patient.hpo_terms ?? []).map(
+        (term) => ({
+          term_id: term.id,
+          term_type: "hpo",
+          term_name: term.term_name,
+          hpo_id: term.hpo_id,
+        }),
+      );
+      const diseaseTerms: AssignedPatientTerm[] = (
+        patient.disease_terms ?? []
+      ).map((term) => ({
+        term_id: -term.id,
+        term_type: "disease",
+        term_name: term.term_name,
+      }));
+      setAssignedTerms([...hpoTerms, ...diseaseTerms]);
+    } finally {
+      setAssignedLoading(false);
+    }
+  }, []);
 
-  // Reset labels when assignment succeeds
-  const clearSelections = () => {
-    setSelectedTermIds(new Set());
-    setSelectedPatientIds(new Set());
-    setSelectedTermLabels(new Map());
-    setSelectedPatientLabels(new Map());
-  };
+  useEffect(() => {
+    if (!selectedPatientId) {
+      setAssignedTerms([]);
+      return;
+    }
+    void refreshAssignedTerms(selectedPatientId);
+  }, [selectedPatientId, refreshAssignedTerms]);
 
-  // ── Assign action ─────────────────────────────────────────────────────
-  const handleAssign = async () => {
+  useEffect(() => {
+    if (!selectedPatientId) {
+      if (selectedPatientLabel) setSelectedPatientLabel("");
+      return;
+    }
+    const label = patientOptionLabels.get(selectedPatientId);
+    if (label && label !== selectedPatientLabel) {
+      setSelectedPatientLabel(label);
+    }
+  }, [selectedPatientId, patientOptionLabels, selectedPatientLabel]);
+
+  const handleAssignTerms = async () => {
+    if (!selectedPatientId || selectedAssignTermIds.size === 0) return;
     try {
       const result = await assignTerms(
-        [...selectedPatientIds],
-        [...selectedTermIds],
+        [selectedPatientId],
+        [...selectedAssignTermIds],
       );
-      setAssignMsg({ type: "success", text: result.message });
-      clearSelections();
+      setPatientTermMsg({ type: "success", text: result.message });
+      setSelectedAssignTermIds(new Set());
+      await refreshAssignedTerms(selectedPatientId);
     } catch {
-      setAssignMsg({ type: "danger", text: "Failed to assign terms." });
+      setPatientTermMsg({
+        type: "danger",
+        text: "Failed to assign terms.",
+      });
+    }
+  };
+
+  const handleAddManualDiseaseTerm = async () => {
+    const termName = newManualDiseaseName.trim();
+    if (!termName) return;
+    try {
+      const created = await upsertFreeTextTerm(
+        termName,
+        newManualDiseaseNotes.trim(),
+      );
+      setManualDiseaseMsg({
+        type: "success",
+        text: "Manual disease term saved.",
+      });
+      setNewManualDiseaseName("");
+      setNewManualDiseaseNotes("");
+      setSelectedAssignTermLabels((prev) =>
+        new Map(prev).set(created.id, created.label),
+      );
+      await loadManualDiseaseTerms(manualDiseaseSearch);
+    } catch {
+      setManualDiseaseMsg({
+        type: "danger",
+        text: "Failed to save manual disease term.",
+      });
+    }
+  };
+
+  const handleDeleteManualDiseaseTerm = async (term: DiseaseTerm) => {
+    if (!window.confirm(`Delete manual disease term: ${term.term_name}?`))
+      return;
+    try {
+      await deleteDiseaseTerm(term.id);
+      setManualDiseaseMsg({
+        type: "success",
+        text: "Manual disease term deleted.",
+      });
+      setSelectedAssignTermIds((prev) => {
+        const next = new Set(prev);
+        next.delete(-term.id);
+        return next;
+      });
+      if (selectedPatientId) {
+        await refreshAssignedTerms(selectedPatientId);
+      }
+      await loadManualDiseaseTerms(manualDiseaseSearch);
+    } catch {
+      setManualDiseaseMsg({
+        type: "danger",
+        text: "Failed to delete manual disease term.",
+      });
+    }
+  };
+
+  const handleStartEditManualDiseaseTerm = (term: DiseaseTerm) => {
+    setEditingManualDiseaseId(term.id);
+    setEditingManualDiseaseName(term.term_name ?? "");
+    setEditingManualDiseaseNotes(term.notes ?? "");
+  };
+
+  const handleSaveEditManualDiseaseTerm = async () => {
+    if (!editingManualDiseaseId || !editingManualDiseaseName.trim()) return;
+    try {
+      await updateDiseaseTerm(editingManualDiseaseId, {
+        term_name: editingManualDiseaseName.trim(),
+        notes: editingManualDiseaseNotes.trim(),
+      });
+      setManualDiseaseMsg({
+        type: "success",
+        text: "Manual disease term updated.",
+      });
+      setEditingManualDiseaseId(null);
+      setEditingManualDiseaseName("");
+      setEditingManualDiseaseNotes("");
+      await loadManualDiseaseTerms(manualDiseaseSearch);
+    } catch {
+      setManualDiseaseMsg({
+        type: "danger",
+        text: "Failed to update manual disease term.",
+      });
+    }
+  };
+
+  const handleRemoveSingleAssignedTerm = async (term: AssignedPatientTerm) => {
+    if (!selectedPatientId) return;
+    try {
+      const result =
+        term.term_type === "hpo"
+          ? await removeHPO(selectedPatientId, term.term_id)
+          : await removePatientDiseaseTerm(
+              selectedPatientId,
+              Math.abs(term.term_id),
+            );
+      setPatientTermMsg({ type: "success", text: result.message });
+      await refreshAssignedTerms(selectedPatientId);
+    } catch {
+      setPatientTermMsg({ type: "danger", text: "Failed to remove term." });
+    }
+  };
+
+  const handleRemoveAllAssignedTerms = async () => {
+    if (!selectedPatientId || assignedTerms.length === 0) return;
+    if (
+      !window.confirm(
+        "Remove all assigned HPO and disease terms from this patient?",
+      )
+    )
+      return;
+    try {
+      const result = await removeTerms(
+        [selectedPatientId],
+        assignedTerms.map((t) => t.term_id),
+      );
+      setPatientTermMsg({ type: "success", text: result.message });
+      await refreshAssignedTerms(selectedPatientId);
+    } catch {
+      setPatientTermMsg({
+        type: "danger",
+        text: "Failed to remove all terms.",
+      });
     }
   };
 
@@ -272,7 +483,11 @@ export default function ManageHpo() {
     }
   };
 
-  const canAssign = selectedTermIds.size > 0 && selectedPatientIds.size > 0;
+  const canAssignTerms =
+    selectedPatientId !== null && selectedAssignTermIds.size > 0;
+  const selectedPatientSet = selectedPatientId
+    ? new Set<number>([selectedPatientId])
+    : new Set<number>();
 
   return (
     <>
@@ -284,70 +499,134 @@ export default function ManageHpo() {
         </button>
       </div>
       <p className="text-muted mb-2">
-        Use one search to find disease terms, then assign selected terms to
-        selected patients.
+        Select one patient, review assigned HPO/disease terms, remove one or
+        all, then assign HPO or disease terms.
       </p>
 
-      {/* Side-by-side selectors */}
+      {/* Patient-first disease-term management */}
       <div className="row">
-        {/* Disease Terms dropdown */}
         <div className="col-2">
           <div className="card">
-            <div className="card-header primary">Disease Terms</div>
+            <div className="card-header success">1. Select Patient</div>
             <div className="card-body">
               <SearchableMultiSelect
-                selectedIds={selectedTermIds}
-                onToggle={toggleTerm}
-                fetchOptions={fetchTermItems}
-                onCreateFromSearch={createFreeTextTerm}
-                createLabelPrefix="Add disease term"
-                placeholder="Search disease terms…"
-                itemLabel="terms"
-              />
-              {selectedTermIds.size > 0 && (
-                <div className="selected-tags mt-1">
-                  <small className="text-muted">Selected:</small>
-                  <div className="tag-list">
-                    {[...selectedTermIds].map((id) => (
-                      <span key={id} className="tag">
-                        {selectedTermLabels.get(id) ?? `#${id}`}
-                        <button
-                          className="tag-remove"
-                          onClick={() => removeTerm(id)}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Patients dropdown */}
-        <div className="col-2">
-          <div className="card">
-            <div className="card-header success">Patients</div>
-            <div className="card-body">
-              <SearchableMultiSelect
-                selectedIds={selectedPatientIds}
-                onToggle={togglePatient}
+                selectedIds={selectedPatientSet}
+                onToggle={toggleSelectedPatient}
                 fetchOptions={fetchPatientItems}
-                placeholder="Select patients…"
+                placeholder="Search/select one patient…"
                 itemLabel="patients"
               />
-              {selectedPatientIds.size > 0 && (
+              {selectedPatientId && (
                 <div className="selected-tags mt-1">
-                  <small className="text-muted">Selected:</small>
+                  <small className="text-muted">Current patient:</small>
                   <div className="tag-list">
-                    {[...selectedPatientIds].map((id) => (
-                      <span key={id} className="tag">
-                        {selectedPatientLabels.get(id) ?? `#${id}`}
+                    <span className="tag">
+                      {selectedPatientLabel || `#${selectedPatientId}`}
+                      <button
+                        className="tag-remove"
+                        onClick={() => setSelectedPatientId(null)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="col-2">
+          <div className="card">
+            <div className="card-header flex-between">
+              <span>2. Assigned Terms</span>
+              <button
+                className="btn btn-outline-danger btn-sm"
+                type="button"
+                disabled={!selectedPatientId || assignedTerms.length === 0}
+                onClick={handleRemoveAllAssignedTerms}
+              >
+                Remove all
+              </button>
+            </div>
+            <div className="card-body">
+              {!selectedPatientId && (
+                <p className="text-muted mb-0">
+                  Select a patient to view assigned terms.
+                </p>
+              )}
+              {selectedPatientId && assignedLoading && (
+                <p>Loading assigned terms...</p>
+              )}
+              {selectedPatientId &&
+                !assignedLoading &&
+                assignedTerms.length === 0 && (
+                  <p className="text-muted mb-0">
+                    No HPO/disease terms assigned.
+                  </p>
+                )}
+              {selectedPatientId &&
+                !assignedLoading &&
+                assignedTerms.length > 0 && (
+                  <div className="tag-list">
+                    {assignedTerms.map((term) => (
+                      <span
+                        key={`${term.term_type}-${term.term_id}`}
+                        className="tag"
+                      >
+                        {term.term_type === "hpo"
+                          ? `[HPO ${term.hpo_id ?? `#${term.term_id}`}] ${term.term_name}`
+                          : `[Disease] ${term.term_name}`}
                         <button
                           className="tag-remove"
-                          onClick={() => removePatient(id)}
+                          onClick={() => handleRemoveSingleAssignedTerm(term)}
+                          title="Remove this term"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+            </div>
+          </div>
+        </div>
+
+        <div className="col-2">
+          <div className="card">
+            <div className="card-header primary flex-between">
+              <span>3. Assign Terms</span>
+              <button
+                className="btn btn-sm btn-outline-light"
+                type="button"
+                onClick={() => {
+                  setManualDiseaseMsg(null);
+                  setShowManualDiseasePopup(true);
+                }}
+              >
+                Manage Manual Terms
+              </button>
+            </div>
+            <div className="card-body">
+              <SearchableMultiSelect
+                selectedIds={selectedAssignTermIds}
+                onToggle={toggleAssignTerm}
+                fetchOptions={fetchAssignTermItems}
+                onCreateFromSearch={createFreeTextDiseaseTerm}
+                createLabelPrefix="Add disease term"
+                placeholder="Search HPO or disease terms..."
+                itemLabel="terms"
+              />
+              {selectedAssignTermIds.size > 0 && (
+                <div className="selected-tags mt-1">
+                  <small className="text-muted">Ready to assign:</small>
+                  <div className="tag-list">
+                    {[...selectedAssignTermIds].map((id) => (
+                      <span key={id} className="tag">
+                        {selectedAssignTermLabels.get(id) ?? `#${id}`}
+                        <button
+                          className="tag-remove"
+                          onClick={() => removeAssignTerm(id)}
                         >
                           ×
                         </button>
@@ -356,25 +635,215 @@ export default function ManageHpo() {
                   </div>
                 </div>
               )}
+              <div className="mt-1">
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={!canAssignTerms}
+                  onClick={handleAssignTerms}
+                >
+                  Assign to selected patient
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="text-center mt-2">
-        <button
-          className="btn btn-primary btn-lg"
-          disabled={!canAssign}
-          onClick={handleAssign}
+      {showManualDiseasePopup && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.45)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+          onClick={() => setShowManualDiseasePopup(false)}
         >
-          Assign Selected Terms → Selected Patients ({selectedTermIds.size}{" "}
-          terms, {selectedPatientIds.size} patients)
-        </button>
-      </div>
+          <div
+            className="card"
+            style={{
+              width: "min(760px, 96vw)",
+              maxHeight: "85vh",
+              overflow: "auto",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="card-header flex-between">
+              <span>Manual Disease Terms</span>
+              <button
+                className="btn btn-sm btn-outline-secondary"
+                type="button"
+                onClick={() => setShowManualDiseasePopup(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="card-body">
+              {manualDiseaseMsg && (
+                <div className={`alert alert-${manualDiseaseMsg.type} mb-1`}>
+                  {manualDiseaseMsg.text}
+                </div>
+              )}
 
-      {assignMsg && (
-        <div className={`alert alert-${assignMsg.type} mt-2`}>
-          {assignMsg.text}
+              <div className="row mb-1">
+                <div className="col-2">
+                  <label className="mb-1">
+                    <strong>Add manual disease term</strong>
+                  </label>
+                  <div className="flex-gap" style={{ flexWrap: "wrap" }}>
+                    <input
+                      className="form-control"
+                      value={newManualDiseaseName}
+                      onChange={(e) => setNewManualDiseaseName(e.target.value)}
+                      placeholder="Term name"
+                    />
+                    <textarea
+                      className="form-control"
+                      value={newManualDiseaseNotes}
+                      onChange={(e) => setNewManualDiseaseNotes(e.target.value)}
+                      placeholder="Description / notes"
+                      rows={3}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      disabled={!newManualDiseaseName.trim()}
+                      onClick={handleAddManualDiseaseTerm}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <label className="mb-1">
+                <strong>Existing manual disease terms</strong>
+              </label>
+              <input
+                className="form-control mb-1"
+                value={manualDiseaseSearch}
+                onChange={(e) => setManualDiseaseSearch(e.target.value)}
+                placeholder="Search manual disease terms..."
+              />
+
+              {manualDiseaseLoading ? (
+                <p>Loading terms...</p>
+              ) : manualDiseaseItems.length === 0 ? (
+                <p className="text-muted mb-0">
+                  No manual disease terms found.
+                </p>
+              ) : (
+                <div className="table-wrap manual-disease-table-wrap">
+                  <table className="manual-disease-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Description / Notes</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {manualDiseaseItems.map((term) => {
+                        const isEditing = editingManualDiseaseId === term.id;
+                        return (
+                          <tr key={term.id}>
+                            <td>
+                              {isEditing ? (
+                                <input
+                                  className="form-control"
+                                  value={editingManualDiseaseName}
+                                  onChange={(e) =>
+                                    setEditingManualDiseaseName(e.target.value)
+                                  }
+                                />
+                              ) : (
+                                term.term_name
+                              )}
+                            </td>
+                            <td>
+                              {isEditing ? (
+                                <textarea
+                                  className="form-control"
+                                  rows={2}
+                                  value={editingManualDiseaseNotes}
+                                  onChange={(e) =>
+                                    setEditingManualDiseaseNotes(e.target.value)
+                                  }
+                                />
+                              ) : (
+                                term.notes || "-"
+                              )}
+                            </td>
+                            <td>
+                              <div className="flex-gap">
+                                {isEditing ? (
+                                  <>
+                                    <button
+                                      className="btn btn-sm btn-primary"
+                                      type="button"
+                                      disabled={
+                                        !editingManualDiseaseName.trim()
+                                      }
+                                      onClick={handleSaveEditManualDiseaseTerm}
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      className="btn btn-sm btn-outline-secondary"
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingManualDiseaseId(null);
+                                        setEditingManualDiseaseName("");
+                                        setEditingManualDiseaseNotes("");
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      className="btn btn-sm btn-outline"
+                                      type="button"
+                                      onClick={() =>
+                                        handleStartEditManualDiseaseTerm(term)
+                                      }
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      className="btn btn-sm btn-outline-danger"
+                                      type="button"
+                                      onClick={() =>
+                                        handleDeleteManualDiseaseTerm(term)
+                                      }
+                                    >
+                                      Delete
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {patientTermMsg && (
+        <div className={`alert alert-${patientTermMsg.type} mt-2`}>
+          {patientTermMsg.text}
         </div>
       )}
 

@@ -61,18 +61,20 @@ export default function Upload() {
     reloadPatients();
   }, []);
 
-  // Map of lab_number -> patient id for resolving selection
+  // Map rendered dropdown label -> patient id for resolving selection
   const patientIdMap = useRef<Map<string, number>>(new Map());
 
   const fetchPatientOptions = useCallback(
     async (search: string, limit: number, offset: number) => {
       const result = await fetchPatientOptionsApi(search, limit, offset);
       for (const p of result.items) {
-        patientIdMap.current.set(p.lab_number, p.id);
+        const label = `${p.im_lab_number ?? p.lab_number} \u2014 ${p.name ?? "Unnamed"}${p.im_lab_number ? ` (Lab ${p.lab_number})` : ""}`;
+        patientIdMap.current.set(label, p.id);
       }
       return {
         items: result.items.map(
-          (p) => `${p.lab_number} \u2014 ${p.name ?? "Unnamed"}`,
+          (p) =>
+            `${p.im_lab_number ?? p.lab_number} \u2014 ${p.name ?? "Unnamed"}${p.im_lab_number ? ` (Lab ${p.lab_number})` : ""}`,
         ),
         total: result.total,
       };
@@ -86,8 +88,7 @@ export default function Upload() {
       setPatientId("");
       return;
     }
-    const labNum = label.split(" \u2014 ")[0];
-    const id = patientIdMap.current.get(labNum);
+    const id = patientIdMap.current.get(label);
     setPatientId(id ?? "");
   }, []);
 
@@ -185,14 +186,14 @@ export default function Upload() {
         </div>
         <div className="card-body">
           <p className="text-muted mb-1" style={{ fontSize: "0.85rem" }}>
-            Search by lab number or name.
+            Search by IM number, lab number, or name.
           </p>
           <SearchableSelect
             key={refreshKey}
             value={patientLabel}
             onChange={handlePatientSelect}
             fetchOptions={fetchPatientOptions}
-            placeholder="Search patients by lab number or name…"
+            placeholder="Search patients by IM number, lab number, or name…"
             itemLabel="patients"
           />
         </div>
@@ -202,7 +203,10 @@ export default function Upload() {
       {patientId && (
         <div className="card mb-2">
           <div className="card-header primary">
-            Upload Variant File for {selectedPatient?.lab_number ?? "Patient"}
+            Upload Variant File for{" "}
+            {selectedPatient?.im_lab_number ??
+              selectedPatient?.lab_number ??
+              "Patient"}
           </div>
           <div className="card-body">
             <div className="row mb-1">
@@ -369,7 +373,8 @@ export default function Upload() {
       {patientId && vcfFiles.length > 0 && (
         <div className="card mb-2">
           <div className="card-header">
-            VCF Files for {selectedPatient?.lab_number}
+            VCF Files for{" "}
+            {selectedPatient?.im_lab_number ?? selectedPatient?.lab_number}
           </div>
           <div className="card-body" style={{ padding: 0 }}>
             <table>

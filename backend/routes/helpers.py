@@ -440,6 +440,86 @@ def validate_lab_number(lab_number):
     return bool(re.match(im_pattern, lab_number) or re.match(num_pattern, lab_number))
 
 
+_LAB_TOKEN_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(IM\d{3,6}|\d{2}[A-Za-z]{2}\d{3,6})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def extract_lab_identifiers(text):
+    """Extract normalized patient-like lab identifiers from free text.
+
+    Returns values in uppercase, e.g. ``{"IM123", "24AB001"}``.
+    """
+    if not text:
+        return set()
+    return {m.group(1).upper() for m in _LAB_TOKEN_PATTERN.finditer(str(text))}
+
+
+def extract_variant_sheet_patient_identifier(file_storage, expect_trio=False):
+    """Extract IM identifier from the first visible XLSX row.
+
+    Variant sheets usually contain merged/grouped cells in the first row,
+    including either ``IM123`` (singleton) or ``Proband(IM123)`` (trio).
+    Returns the normalized IM code when found, otherwise ``None``.
+    """
+    wb = _load_workbook_tolerant(file_storage)
+    if not wb.worksheets:
+        return None
+
+    ws = wb.worksheets[0]
+    first_visible = None
+    for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        if ws.row_dimensions[idx].hidden:
+            continue
+        first_visible = row
+        break
+
+    if not first_visible:
+        return None
+
+    row_text = " ".join(
+        str(v).strip() for v in first_visible if v is not None and str(v).strip()
+    )
+    if not row_text:
+        return None
+
+    if expect_trio:
+        proband = re.search(r"proband\s*\(\s*(IM\d{3,6})\s*\)", row_text, re.IGNORECASE)
+        if proband:
+            return proband.group(1).upper()
+
+    any_im = re.search(r"\b(IM\d{3,6})\b", row_text, re.IGNORECASE)
+    if any_im:
+        return any_im.group(1).upper()
+    return None
+
+
+def variant_upload_id_mismatch_message(file_storage, patient, expect_trio=False):
+    """Return mismatch message when sheet-embedded IM code conflicts patient.
+
+    If the sheet has no recognizable IM identifier in the first row, the check
+    is skipped to preserve compatibility with older templates.
+    """
+    found_im = extract_variant_sheet_patient_identifier(
+        file_storage,
+        expect_trio=expect_trio,
+    )
+    if not found_im:
+        return None
+
+    expected_im = (getattr(patient, "im_lab_number", None) or "").strip().upper()
+    if not expected_im:
+        return None
+    if found_im == expected_im:
+        return None
+
+    return (
+        "Uploaded file appears to belong to a different patient. "
+        f"Sheet IM ID: {found_im}. Expected IM ID: {expected_im}."
+    )
+
+
 # ── Auto-mapping helpers ─────────────────────────────────────────────────
 
 def get_available_patient_fields():
