@@ -39,18 +39,6 @@ def _split_genes(gene_names: str | None) -> list[str]:
     return [p.strip().upper() for p in parts if p.strip()]
 
 
-def _tokenize_keywords(*values: str | None) -> list[str]:
-    stop_words = {
-        "the", "and", "for", "with", "from", "that", "this", "variant",
-        "variants", "patient", "patients", "gene", "genes", "unknown",
-        "likely", "pathogenic", "benign", "vus", "inherited", "review",
-        "comment", "on", "of", "to", "in", "is", "are", "a", "an",
-    }
-    merged = " ".join((v or "") for v in values)
-    raw = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", merged)
-    return [t.lower() for t in raw if t.lower() not in stop_words]
-
-
 def _normalize_bucket_label(value: str | None, fallback: str = "Unknown") -> str:
     text = (value or "").strip()
     return text if text else fallback
@@ -239,7 +227,7 @@ def get_summary():
     variant_counter = Counter()
     gene_counter = Counter()
     gene_chromosome_counter = defaultdict(Counter)
-    keyword_counter = Counter()
+    term_counter = Counter()
     reportable_variant_counter = Counter()
     sex_counter = Counter()
     age_counter = Counter()
@@ -278,13 +266,6 @@ def get_summary():
             if chrom:
                 gene_chromosome_counter[gene][chrom] += 1
 
-        for keyword in _tokenize_keywords(
-            getattr(row, "title", None),
-            getattr(row, "classification", None),
-            getattr(row, "second_review_comment", None),
-        ):
-            keyword_counter[keyword] += 1
-
     for row in singletons:
         sample_singleton_counter[row.patient_id] += 1
 
@@ -295,6 +276,16 @@ def get_summary():
         sex_counter[_normalize_sex(getattr(patient, "sex", None))] += 1
         ethnicity_counter[_normalize_bucket_label(getattr(patient, "ethnicity", None))] += 1
         test_counter[_normalize_bucket_label(getattr(patient, "type_of_test", None))] += 1
+
+        for hpo_term in patient.hpo_terms:
+            term_name = (hpo_term.term_name or "").strip()
+            if term_name:
+                term_counter[("hpo", term_name)] += 1
+
+        for disease_term in patient.disease_terms:
+            term_name = (disease_term.term_name or "").strip()
+            if term_name:
+                term_counter[("disease", term_name)] += 1
 
         age_years = _parse_age_years(getattr(patient, "age", None), getattr(patient, "age_unit", None))
         age_bucket = _bucket_age(age_years)
@@ -427,9 +418,13 @@ def get_summary():
             }
             for gene, count in gene_counter.most_common(30)
         ],
-        "top_keywords": [
-            {"keyword": k, "count": v}
-            for k, v in keyword_counter.most_common(40)
+        "top_terms": [
+            {
+                "term_type": term_type,
+                "term": term,
+                "count": count,
+            }
+            for (term_type, term), count in term_counter.most_common(40)
         ],
     }
     return jsonify(payload)

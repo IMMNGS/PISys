@@ -460,6 +460,41 @@ tbody tr:hover {
   background: rgba(79, 70, 229, 0.04);
 }
 
+/* Manual disease-term popup table: keep action buttons visible. */
+.manual-disease-table-wrap {
+  max-height: 50vh;
+  overflow: auto;
+}
+.manual-disease-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+.manual-disease-table th,
+.manual-disease-table td {
+  white-space: normal;
+  vertical-align: top;
+}
+.manual-disease-table th:nth-child(1),
+.manual-disease-table td:nth-child(1) {
+  width: 28%;
+}
+.manual-disease-table th:nth-child(2),
+.manual-disease-table td:nth-child(2) {
+  width: 46%;
+}
+.manual-disease-table th:nth-child(3),
+.manual-disease-table td:nth-child(3) {
+  width: 26%;
+  position: sticky;
+  right: 0;
+  background: #fff;
+  z-index: 2;
+}
+.manual-disease-table thead th:nth-child(3) {
+  background: var(--light);
+  z-index: 3;
+}
+
 /* ── Badges ──────────────────────────────────────────────────────────── */
 .badge {
   display: inline-block;

@@ -124,9 +124,9 @@ export default function DescriptiveStats() {
       })),
     );
     pushRows(
-      "keyword",
-      data.top_keywords.map((row) => ({
-        label: row.keyword,
+      "term",
+      data.top_terms.map((row) => ({
+        label: `[${row.term_type.toUpperCase()}] ${row.term}`,
         count: row.count,
       })),
     );
@@ -330,9 +330,9 @@ export default function DescriptiveStats() {
               maxItems={15}
             />
             <DistributionChart
-              title="Top keywords"
-              items={data.top_keywords.map((row) => ({
-                label: row.keyword,
+              title="Top HPO/Disease terms"
+              items={data.top_terms.map((row) => ({
+                label: `[${row.term_type.toUpperCase()}] ${row.term}`,
                 count: row.count,
               }))}
               maxItems={15}
