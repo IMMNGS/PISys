@@ -1,0 +1,155 @@
+# Docker Compose for Patient Information System on Synology NAS
+#
+# This compose file is optimized for Synology Container Manager (DSM 7.x)
+# and can be used in production environments.
+#
+# Prerequisites:
+#   1. Install Container Manager from Package Center on your Synology NAS
+#   2. Create directory: /volume1/docker/ha/
+#   3. Copy this file and .env.synology to that directory
+#   4. Create .env file from .env.synology.example with your secrets
+#   5. Create subdirectories: mysql, env, app
+#   6. Clone or copy this repository to /volume1/docker/ha/app
+#
+# Usage on Synology:
+#   - Container Manager > Project > Create > Upload docker-compose.yml and .env
+#   - Or: SSH into NAS and run: docker compose -f docker-compose.yml up -d
+
+version: "3.8"
+
+services:
+  # ──────────────────────────────────────────────────────────────────────────
+  # MySQL Database Service
+  # ──────────────────────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: ha-db
+    restart: unless-stopped
+
+    # Environment variables for MySQL initialization
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DB:-pisys_db}
+      MYSQL_USER: ${MYSQL_USER:-hauser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-UTC}
+
+    # MySQL server configuration for UTF-8 support
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone='+00:00'
+      - --max_allowed_packet=1024M
+      - --max_connections=200
+
+    # Persistent volume for database files
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    # Health check to ensure DB is ready before app starts
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD} || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Flask Application Service
+  # ──────────────────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: ${APP_PATH:-.}
+      dockerfile: Dockerfile
+
+    container_name: ha-app
+    restart: unless-stopped
+
+    # Wait for MySQL to be healthy before starting
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # Load environment variables from .env file
+    env_file:
+      - .env
+
+    # Override/set specific environment variables
+    environment:
+      FLASK_ENV: production
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DB: ${MYSQL_DB:-pisys_db}
+      MYSQL_USER: ${MYSQL_USER:-hauser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: ${TZ:-UTC}
+      SECRET_KEY: ${SECRET_KEY}
+      GUNICORN_BIND: "0.0.0.0:8000"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+      GUNICORN_LOG_LEVEL: ${GUNICORN_LOG_LEVEL:-info}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+
+    # Port mapping: <host_port>:<container_port>
+    # Use port 18000 to avoid conflicts with other services
+    ports:
+      - "${APP_PORT:-18000}:8000"
+
+    # Persistent volumes
+    volumes:
+      # Application data (VCF files, uploads, etc.)
+      - app_data:/app/data
+
+    # Health check for the Flask application
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ════════════════════════════════════════════════════════════════════════════
+# Named Volumes (persistent storage)
+# ════════════════════════════════════════════════════════════════════════════
+volumes:
+  mysql_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${MYSQL_DATA_PATH:-/volume1/docker/ha/mysql}
+
+  app_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APP_DATA_PATH:-/volume1/docker/ha/app/data}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Networks
+# ════════════════════════════════════════════════════════════════════════════
+networks:
+  default:
+    name: ha-network
+    driver: bridge
