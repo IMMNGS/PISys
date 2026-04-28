@@ -543,6 +543,17 @@ export async function createPatient(
   return res.json();
 }
 
+export function updatePatient(
+  patientId: number,
+  data: Partial<PatientInfo>,
+): Promise<PatientInfo> {
+  return json(`${BASE}/patients/${patientId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export function deletePatient(patientId: number): Promise<{ message: string }> {
   return json(`${BASE}/patients/${patientId}`, { method: "DELETE" });
 }

@@ -1,6 +1,6 @@
-# HA
+# PISys
 
-HA is a patient information system with a Flask backend and React frontend.
+PISys is a patient information system with a Flask backend and React frontend.
 
 ## Prerequisites
 
