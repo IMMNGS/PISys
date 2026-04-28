@@ -1,16 +1,20 @@
-# PISys
+# Patient Information System
 
-PISys is a patient information system with a Flask backend and React frontend.
+Patient Information System is a Flask + React application for managing patient records, phenotype terms, variant findings, VCF uploads, and report generation.
 
-## Prerequisites
+## What it includes
 
-- Python 3.9+
-- Node.js + npm
-- MySQL server (local or remote)
+- Flask backend with MySQL persistence
+- React + TypeScript frontend built with Vite
+- Session authentication, CSRF protection, and audit logging
+- Patient, singleton, trio, HPO, disease-term, report, and insights workflows
+- Docker and Synology NAS deployment support
 
-## Environment configuration
+## Quick start
 
-Create a `.env` file in the project root (or copy from `.env.example` if present). The launchers use these defaults when values are missing:
+### 1. Configure the environment
+
+Copy `.env.example` to `.env` and fill in the database and secret values. The app uses these defaults when values are missing:
 
 - `MYSQL_HOST=localhost`
 - `MYSQL_PORT=3306`
@@ -18,17 +22,14 @@ Create a `.env` file in the project root (or copy from `.env.example` if present
 - `MYSQL_PASSWORD=`
 - `MYSQL_DB=pisys_db`
 
-Optional:
+Recommended production values:
 
-- `SECRET_KEY` (recommended for production)
-- `PORT` (used by `run.py` in development, default `5001`)
+- `SECRET_KEY` — required in production
+- `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_FULL_NAME` — bootstrap admin user
+- `MAX_UPLOAD_MB` — upload size limit in MB
+- `DATA_DIR` — override local data location if needed
 
-Note:
-If MYSQL is already installed, please use the existing root password as `MYSQL_PASSWORD`.
-
-## Setup
-
-Run setup once to create `.venv`, install backend/frontend dependencies, create data folders, ensure the MySQL database exists, and seed initial HPO terms.
+### 2. Install dependencies and initialize the app
 
 Unix/macOS:
 
@@ -38,73 +39,56 @@ bash run.sh setup
 
 Windows:
 
-Follow the instruction upon running run_windows.bat
+```powershell
+.\run_windows.ps1 setup
+```
 
-## Start the server
+### 3. Run the app
 
-The scripts support three modes: `setup`, `development`, `production`. If no mode is provided, they start in `production` mode.
-
-Development mode
-
-- Backend runs with `python run.py`.
-- Frontend dev server is separate.
-
-Unix/macOS:
+Development:
 
 ```bash
 bash run.sh development
 ```
 
-Windows:
-
-Follow the instruction upon running run_windows.bat
-
-Frontend dev server (both platforms, in another terminal):
-
-```bash
-cd frontend
-npm run dev
-```
-
-Production mode
-
-- Unix/macOS launches Gunicorn (`gunicorn -c gunicorn.conf.py run:app`) on port `8000` by default.
-- Windows launches Waitress on `0.0.0.0:8000`.
-
-Unix/macOS:
+Production:
 
 ```bash
 bash run.sh production
 ```
 
-Windows:
+Windows uses the same modes through `run_windows.ps1` or `run_windows.bat`.
 
-Follow the instruction upon running run_windows.bat
+## Runtime URLs
 
-You can then open `http://127.0.0.1:8000`.
+- Backend / production app: `http://127.0.0.1:8000`
+- Frontend development server: `http://127.0.0.1:5173`
 
-## Manual quick start (optional)
+## Main documentation
 
-1. Create and activate a virtual environment.
-2. Install backend dependencies:
+- [Repository documentation](DOCUMENTATION.md)
+- [Synology deployment guide](SYNOLOGY_SETUP.md)
 
-```bash
-pip install -r requirements.txt
-```
+## Project structure
 
-3. Install frontend dependencies:
+- `backend/` — Flask app factory, models, security helpers, and API routes
+- `frontend/` — React user interface
+- `data/` — uploaded files, seeded reference data, and local RAG assets
+- `scripts/` — maintenance and seed scripts
+- `test/` — automated backend tests
 
-```bash
-cd frontend && npm install
-```
+## Key files
 
-4. Configure `.env` using `.env.example`.
-   - Database defaults are MySQL (`MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB`).
+- `run.py` — Python entry point used for local development
+- `run.sh` — Unix/macOS setup and launch script
+- `run_windows.ps1` / `run_windows.bat` — Windows setup and launch scripts
+- `docker-compose.yml` — Docker deployment for Synology and other hosts
+- `Dockerfile` — production container build
+- `gunicorn.conf.py` — Gunicorn production settings
+- `requirements.txt` — Python dependencies
 
-## Project layout
+## Notes
 
-- `backend/`: Flask API routes, config, models.
-- `frontend/`: React app.
-- `data/`: local data files.
-- `test/`: backend tests.
-- `run.sh`, `run_windows.ps1`: setup and launch scripts.
+- The app stores data in MySQL and persists uploaded files under `data/`.
+- The production build serves the compiled React app from Flask.
+- Legacy scripts under `backend/routes/patient_info*` are ignored by git and are not part of the main runtime.

@@ -45,12 +45,19 @@ ssh admin@192.168.1.100  # Replace with your NAS IP
 sudo mkdir -p /volume1/docker/ha
 sudo mkdir -p /volume1/docker/ha/mysql
 sudo mkdir -p /volume1/docker/ha/app
-sudo mkdir -p /volume1/docker/ha/env
+sudo mkdir -p /volume1/docker/ha/app/data
 
 # Set permissions (replace 'admin' with your Synology username if different)
 sudo chown -R admin:users /volume1/docker/ha
 sudo chmod -R 755 /volume1/docker/ha
 ```
+
+Repository files used by the deployment:
+
+- `docker-compose.yml` — defines the MySQL and app containers
+- `.env.synology.example` — template for `/volume1/docker/ha/.env`
+- `Dockerfile` — builds the production app image
+- `run.py` — app entry point used by the container
 
 ### Step 2: Copy Application Files to NAS
 
@@ -93,6 +100,11 @@ ADMIN_PASSWORD=change_me_in_production
 
 # If you used a different timezone
 TZ=America/Chicago
+
+# Recommended defaults for this stack
+MYSQL_DB=pisys_db
+MYSQL_USER=hauser
+APP_PORT=18000
 ```
 
 Exit the editor (`:wq` for vi).
@@ -108,6 +120,7 @@ ls -la /volume1/docker/ha/
 # Expected output:
 # drwxr-xr-x ... mysql
 # drwxr-xr-x ... app
+# drwxr-xr-x ... app/data
 # -rw-r--r-- ... .env
 ```
 
