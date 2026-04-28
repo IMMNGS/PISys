@@ -14,7 +14,7 @@ This guide walks you through deploying the HA (Patient Information System) on a 
 
 ### 1. Generate Secure Credentials
 
-Open a terminal on your Mac and generate secrets for the `.env` file:
+Open a terminal on your computer and generate secrets for the `.env` file:
 
 ```bash
 # Generate Flask SECRET_KEY
@@ -54,7 +54,7 @@ sudo chmod -R 755 /volume1/docker/ha
 
 ### Step 2: Copy Application Files to NAS
 
-From your Mac, copy the entire HA repository to the NAS:
+From your computer, copy the entire HA repository to the NAS:
 
 ```bash
 # From /Users/hi/Documents/code/HA/
@@ -129,10 +129,10 @@ ls -la /volume1/docker/ha/
 
 6. Click **Create** → **Create with docker compose file**.
 
-7. Select **Upload from file** and upload `docker-compose.yml` from your Mac:
+7. Select **Upload from file** and upload `docker-compose.yml` from your computer:
 
    ```bash
-   # On your Mac, in the HA directory:
+   # On your computer, in the HA directory (where the HA repo is cloned):
    scp docker-compose.yml admin@192.168.1.100:/volume1/docker/ha/
    ```
 
@@ -197,7 +197,7 @@ Listening at: 0.0.0.0:8000
 
 ### Step 8: Test Local Access
 
-From your Mac, test the application on your NAS:
+From your computer, test the application on your NAS:
 
 ```bash
 curl -v http://192.168.1.100:18000/
@@ -402,8 +402,8 @@ cd /volume1/docker/ha
 # Full diagnostic dump
 sudo docker compose logs > /volume1/docker/ha/debug_$(date +%Y%m%d_%H%M%S).log
 
-# Copy back to your Mac for analysis
-scp admin@192.168.1.100:/volume1/docker/ha/debug_*.log ~/Downloads/
+# Copy back to your computer for analysis
+scp admin@192.168.1.100:/volume1/docker/ha/debug_*.log ./debug_logs/
 ```
 
 ---
