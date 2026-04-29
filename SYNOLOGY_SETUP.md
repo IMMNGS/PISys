@@ -98,9 +98,6 @@ MYSQL_ROOT_PASSWORD=<your-generated-root-password>
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change_me_in_production
 
-# If you used a different timezone
-TZ=America/Chicago
-
 # Recommended defaults for this stack
 MYSQL_DB=pisys_db
 MYSQL_USER=pisysuser
