@@ -371,6 +371,165 @@ Unique constraint:
 
 - `(patient_id, disease_term_id)`
 
+## 6.1) ERD
+
+The diagram below shows the main database entities and how they relate.
+
+```mermaid
+erDiagram
+	PATIENTS {
+		int id PK
+		date report_date
+		string lab_number UK
+		string im_lab_number
+		string name
+		string hkid
+		date dob
+		string sex
+		string age
+		string age_unit
+		string ethnicity
+		date specimen_collected
+		date specimen_arrived
+		text case_history
+		string type_of_test
+		string type_of_findings
+		text findings_summary
+		string ngs_batch
+		string ngs_tat
+		string ngs_tat_final
+		string request_dr
+		text remark
+		datetime created_at
+	}
+
+	HPO_TERMS {
+		int id PK
+		string hpo_id UK
+		string term_name
+		text definition
+		text synonyms
+	}
+
+	DISEASE_TERMS {
+		int id PK
+		string term_name
+		string normalized_name UK
+		text notes
+		datetime created_at
+	}
+
+	SINGLETON {
+		int id PK
+		int patient_id FK
+		text reportable_variant
+		string chr_pos
+		string ref_alt
+		boolean igv_review
+		text second_review_comment
+		text gene_names
+		string hgvs_c
+		string hgvs_p
+		string exon_number
+		string zygosity
+		string inheritance
+		string inherited_from
+		string classification
+		string omim_id
+		string rsid
+		string title
+		string omimid
+		text gene_region_combined
+		datetime created_at
+	}
+
+	TRIO {
+		int id PK
+		int patient_id FK
+		text reportable_variant
+		string chr_pos
+		string ref_alt
+		boolean igv_review
+		text second_review_comment
+		text gene_names
+		string hgvs_c
+		string hgvs_p
+		string exon_number
+		string zygosity
+		string inheritance
+		string inherited_from
+		string classification
+		string omim_id
+		string rsid
+		string title
+		string omimid
+		text gene_region_combined
+		datetime created_at
+	}
+
+	VCF_FILES {
+		int id PK
+		int patient_id FK
+		string filename
+		string relative_path
+		bigint file_size
+		datetime uploaded_at
+	}
+
+	VARIANT_UPLOADS {
+		int id PK
+		int patient_id FK
+		string file_type
+		string original_filename
+		string stored_filename
+		string relative_path
+		bigint file_size
+		datetime uploaded_at
+	}
+
+	AUTH_USERS {
+		int id PK
+		string username UK
+		string full_name
+		string password_hash
+		string role
+		boolean is_active
+		datetime created_at
+		datetime last_login_at
+	}
+
+	ACCESS_LOGS {
+		int id PK
+		int user_id FK
+		string username
+		string action
+		string target
+		string method
+		string path
+		int status_code
+		string remote_addr
+		string user_agent
+		datetime created_at
+	}
+
+	PATIENTS ||--o{ SINGLETON : has
+	PATIENTS ||--o{ TRIO : has
+	PATIENTS ||--o{ VCF_FILES : has
+	PATIENTS ||--o{ VARIANT_UPLOADS : has
+	PATIENTS ||--o{ PATIENT_HPO : links
+	PATIENTS ||--o{ PATIENT_DISEASE_TERM : links
+	HPO_TERMS ||--o{ PATIENT_HPO : links
+	DISEASE_TERMS ||--o{ PATIENT_DISEASE_TERM : links
+	AUTH_USERS ||--o{ ACCESS_LOGS : writes
+```
+
+### ERD reading notes
+
+- `patients` is the central clinical record.
+- `singleton`, `trio`, `vcf_files`, and `variant_uploads` all depend on `patients.id`.
+- `hpo_terms` and `disease_terms` are reference tables that connect to patients through join tables.
+- `auth_users` is separate from patient records and is used only for application login and auditing.
+
 ## 7) Frontend structure
 
 ### App shell
