@@ -29,6 +29,25 @@ Recommended production values:
 - `MAX_UPLOAD_MB` — upload size limit in MB
 - `DATA_DIR` — override local data location if needed
 
+### Setting up the admin password
+
+The admin password is used to bootstrap the default administrator account on first run. To set or change it:
+
+1. **Before first run**: Set the `ADMIN_PASSWORD` environment variable in your `.env` file:
+
+   ```
+   ADMIN_PASSWORD=your_secure_password_here
+   ```
+
+   Default if not set: `admin12345` (not recommended for production)
+
+2. **After first run**: The admin account is persisted in the database. To change the password later, log in to the application with your current admin credentials and update it through the admin panel.
+
+3. **Production requirements**:
+   - Always set a strong, unique `ADMIN_PASSWORD` in production
+   - Change the default password immediately after deployment
+   - Store the password securely (e.g., in your env management system)
+
 ### 2. Install dependencies and initialize the app
 
 Unix/macOS:
