@@ -1,6 +1,6 @@
 # Patient Information System on Synology NAS — Setup Guide
 
-This guide walks you through deploying the HA (Patient Information System) on a Synology NAS using Docker and Container Manager.
+This guide walks you through deploying PISYS (Patient Information System) on a Synology NAS using Docker and Container Manager.
 
 ## Prerequisites
 
@@ -42,34 +42,34 @@ ssh admin@192.168.1.100  # Replace with your NAS IP
 
 ```bash
 # Create base directory for the project
-sudo mkdir -p /volume1/docker/ha
-sudo mkdir -p /volume1/docker/ha/mysql
-sudo mkdir -p /volume1/docker/ha/app
-sudo mkdir -p /volume1/docker/ha/app/data
+sudo mkdir -p /volume1/docker/pisys
+sudo mkdir -p /volume1/docker/pisys/mysql
+sudo mkdir -p /volume1/docker/pisys/app
+sudo mkdir -p /volume1/docker/pisys/app/data
 
 # Set permissions (replace 'admin' with your Synology username if different)
-sudo chown -R admin:users /volume1/docker/ha
-sudo chmod -R 755 /volume1/docker/ha
+sudo chown -R admin:users /volume1/docker/pisys
+sudo chmod -R 755 /volume1/docker/pisys
 ```
 
 Repository files used by the deployment:
 
 - `docker-compose.yml` — defines the MySQL and app containers
-- `.env.synology.example` — template for `/volume1/docker/ha/.env`
+- `.env.synology.example` — template for `/volume1/docker/pisys/.env`
 - `Dockerfile` — builds the production app image
 - `run.py` — app entry point used by the container
 
 ### Step 2: Copy Application Files to NAS
 
-From your computer, copy the entire HA repository to the NAS:
+From your computer, copy the entire PISYS repository to the NAS:
 
 ```bash
-# From /Users/hi/Documents/code/HA/
-scp -r ./* admin@192.168.1.100:/volume1/docker/ha/app/
+# From /Users/hi/Documents/code/pisys/
+scp -r ./* admin@192.168.1.100:/volume1/docker/pisys/app/
 
 # Or use rsync (faster for repeated syncs)
 rsync -av --exclude='.venv' --exclude='node_modules' --exclude='.git' \
-  ./ admin@192.168.1.100:/volume1/docker/ha/app/
+  ./ admin@192.168.1.100:/volume1/docker/pisys/app/
 ```
 
 ### Step 3: Create `.env` File
@@ -80,10 +80,10 @@ SSH into the NAS and create the `.env` file:
 ssh admin@192.168.1.100
 
 # Create .env from the example
-cp /volume1/docker/ha/app/.env.synology.example /volume1/docker/ha/.env
+cp /volume1/docker/pisys/app/.env.synology.example /volume1/docker/pisys/.env
 
 # Edit the .env file
-vi /volume1/docker/ha/.env
+vi /volume1/docker/pisys/.env
 ```
 
 **Update these required fields:**
@@ -103,7 +103,7 @@ TZ=America/Chicago
 
 # Recommended defaults for this stack
 MYSQL_DB=pisys_db
-MYSQL_USER=hauser
+MYSQL_USER=pisysuser
 APP_PORT=18000
 ```
 
@@ -113,10 +113,10 @@ Exit the editor (`:wq` for vi).
 
 ```bash
 # Make sure the .env file is readable by Docker
-chmod 644 /volume1/docker/ha/.env
+chmod 644 /volume1/docker/pisys/.env
 
 # Verify structure
-ls -la /volume1/docker/ha/
+ls -la /volume1/docker/pisys/
 # Expected output:
 # drwxr-xr-x ... mysql
 # drwxr-xr-x ... app
@@ -145,15 +145,15 @@ ls -la /volume1/docker/ha/
 7. Select **Upload from file** and upload `docker-compose.yml` from your computer:
 
    ```bash
-   # On your computer, in the HA directory (where the HA repo is cloned):
-   scp docker-compose.yml admin@192.168.1.100:/volume1/docker/ha/
+   # On your computer, in the PISYS directory (where the PISYS repo is cloned):
+   scp docker-compose.yml admin@192.168.1.100:/volume1/docker/pisys/
    ```
 
 8. Or copy/paste the contents of `docker-compose.yml` directly into the text area.
 
 9. Click **Next**.
 
-10. For **Project Name**, enter: `ha-patient-info`
+10. For **Project Name**, enter: `pisys-patient-info`
 
 11. Click **Create**.
 
@@ -166,7 +166,7 @@ If you prefer the command line:
 ```bash
 ssh admin@192.168.1.100
 
-cd /volume1/docker/ha
+cd /volume1/docker/pisys
 
 # Start the containers
 sudo docker compose up -d
@@ -190,8 +190,8 @@ sudo docker compose ps
 
 ```
 NAME       STATUS          PORTS
-ha-db      Up (healthy)    3306/tcp
-ha-app     Up (healthy)    0.0.0.0:18000->8000/tcp
+pisys-db   Up (healthy)    3306/tcp
+pisys-app  Up (healthy)    0.0.0.0:18000->8000/tcp
 ```
 
 View application logs:
@@ -239,9 +239,9 @@ For external/secure access, use Synology's reverse proxy:
 3. Fill in:
    | Field | Value |
    |-------|-------|
-   | Description | HA Patient Info |
+   | Description | PISYS Patient Info |
    | Protocol (source) | HTTPS |
-   | Hostname (source) | ha.yourdomain.com |
+   | Hostname (source) | pisys.yourdomain.com |
    | Port (source) | 443 |
    | Protocol (destination) | HTTP |
    | Hostname (destination) | localhost |
@@ -249,11 +249,11 @@ For external/secure access, use Synology's reverse proxy:
 
 4. Click **OK**.
 
-5. Go to **Control Panel** → **Security** → **Certificate** to install a Let's Encrypt certificate for `ha.yourdomain.com`.
+5. Go to **Control Panel** → **Security** → **Certificate** to install a Let's Encrypt certificate for `pisys.yourdomain.com`.
 
 6. Test external access:
    ```
-   https://ha.yourdomain.com
+   https://pisys.yourdomain.com
    ```
 
 ## Backup & Maintenance
@@ -263,7 +263,7 @@ For external/secure access, use Synology's reverse proxy:
 1. In DSM, open **Hyper Backup**.
 
 2. Create a new backup task:
-   - **Backup source**: Select folders `/volume1/docker/ha/mysql` and `/volume1/docker/ha/app/data`.
+   - **Backup source**: Select folders `/volume1/docker/pisys/mysql` and `/volume1/docker/pisys/app/data`.
    - **Backup destination**: External drive or cloud storage.
    - **Schedule**: Daily at 3 AM.
 
@@ -274,12 +274,12 @@ For external/secure access, use Synology's reverse proxy:
 ```bash
 ssh admin@192.168.1.100
 
-cd /volume1/docker/ha
+cd /volume1/docker/pisys
 
 # Backup MySQL database
 sudo docker compose exec db mysqldump \
   -u root -p${MYSQL_ROOT_PASSWORD} \
-  --all-databases > /volume1/docker/ha/backup_$(date +%Y%m%d).sql
+  --all-databases > /volume1/docker/pisys/backup_$(date +%Y%m%d).sql
 ```
 
 ### Update Application Code
@@ -289,7 +289,7 @@ When you have new code:
 ```bash
 ssh admin@192.168.1.100
 
-cd /volume1/docker/ha/app
+cd /volume1/docker/pisys/app
 
 # Pull the latest code
 git pull origin main
@@ -319,7 +319,7 @@ sudo docker compose logs app
 # Common issues:
 # - MySQL port already in use (change APP_PORT in .env to a different value)
 # - Insufficient disk space (check: df -h /volume1)
-# - Secret keys not set in .env (check: cat /volume1/docker/ha/.env)
+# - Secret keys not set in .env (check: cat /volume1/docker/pisys/.env)
 ```
 
 ### 2. Database Connection Errors
@@ -373,8 +373,8 @@ sudo docker image prune -a
 
 ```bash
 # Fix permissions
-sudo chown -R 1000:1000 /volume1/docker/ha/app/data
-sudo chmod -R 755 /volume1/docker/ha/app/data
+sudo chown -R 1000:1000 /volume1/docker/pisys/app/data
+sudo chmod -R 755 /volume1/docker/pisys/app/data
 ```
 
 ## Performance Tuning

@@ -674,9 +674,9 @@ The Docker stack uses:
 
 The Synology guide in `SYNOLOGY_SETUP.md` uses:
 
-- `/volume1/docker/ha/mysql` for MySQL persistence
-- `/volume1/docker/ha/app/data` for uploaded files
-- `/volume1/docker/ha/.env` for production secrets and configuration
+- `/volume1/docker/pisys/mysql` for MySQL persistence
+- `/volume1/docker/pisys/app/data` for uploaded files
+- `/volume1/docker/pisys/.env` for production secrets and configuration
 
 ### Production behavior
 

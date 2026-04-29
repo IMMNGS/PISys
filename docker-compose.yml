@@ -5,11 +5,11 @@
 #
 # Prerequisites:
 #   1. Install Container Manager from Package Center on your Synology NAS
-#   2. Create directory: /volume1/docker/ha/
+#   2. Create directory: /volume1/docker/pisys/
 #   3. Copy this file and .env.synology to that directory
 #   4. Create .env file from .env.synology.example with your secrets
 #   5. Create subdirectories: mysql, env, app
-#   6. Clone or copy this repository to /volume1/docker/ha/app
+#   6. Clone or copy this repository to /volume1/docker/pisys/app
 #
 # Usage on Synology:
 #   - Container Manager > Project > Create > Upload docker-compose.yml and .env
@@ -23,13 +23,13 @@ services:
   # ──────────────────────────────────────────────────────────────────────────
   db:
     image: mysql:8.0
-    container_name: ha-db
+    container_name: pisys-db
     restart: unless-stopped
 
     # Environment variables for MySQL initialization
     environment:
       MYSQL_DATABASE: ${MYSQL_DB:-pisys_db}
-      MYSQL_USER: ${MYSQL_USER:-hauser}
+      MYSQL_USER: ${MYSQL_USER:-pisysuser}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       TZ: ${TZ:-UTC}
@@ -73,7 +73,7 @@ services:
       context: ${APP_PATH:-.}
       dockerfile: Dockerfile
 
-    container_name: ha-app
+    container_name: pisys-app
     restart: unless-stopped
 
     # Wait for MySQL to be healthy before starting
@@ -91,7 +91,7 @@ services:
       MYSQL_HOST: db
       MYSQL_PORT: 3306
       MYSQL_DB: ${MYSQL_DB:-pisys_db}
-      MYSQL_USER: ${MYSQL_USER:-hauser}
+      MYSQL_USER: ${MYSQL_USER:-pisysuser}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: ${TZ:-UTC}
       SECRET_KEY: ${SECRET_KEY}
@@ -137,19 +137,19 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ${MYSQL_DATA_PATH:-/volume1/docker/ha/mysql}
+      device: ${MYSQL_DATA_PATH:-/volume1/docker/pisys/mysql}
 
   app_data:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${APP_DATA_PATH:-/volume1/docker/ha/app/data}
+      device: ${APP_DATA_PATH:-/volume1/docker/pisys/app/data}
 
 # ════════════════════════════════════════════════════════════════════════════
 # Networks
 # ════════════════════════════════════════════════════════════════════════════
 networks:
   default:
-    name: ha-network
+    name: pisys-network
     driver: bridge

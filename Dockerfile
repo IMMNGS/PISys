@@ -2,7 +2,7 @@
 # Production-optimized for Synology NAS deployment
 #
 # Usage:
-#   docker build -t ha-app:latest .
+#   docker build -t pisys-app:latest .
 #   docker compose up -d
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -49,7 +49,7 @@ RUN npm run build
 FROM python:3.11-slim
 
 # Metadata
-LABEL maintainer="HA Team"
+LABEL maintainer="PISYS Team"
 LABEL description="Patient Information System - Production Container"
 LABEL version="1.0.0"
 
