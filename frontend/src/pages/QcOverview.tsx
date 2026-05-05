@@ -253,7 +253,7 @@ export default function QcOverview() {
         {([
           { key: "overview", label: "Overview & Stats" },
           { key: "batches", label: "Batches" },
-          { key: "records", label: "Per-Patient Records" },
+          { key: "records", label: "QC Records" }
         ] as { key: TabKey; label: string }[]).map((t) => (
           <button
             key={t.key}
@@ -480,7 +480,7 @@ export default function QcOverview() {
             <>
               {records.length === 0 ? (
                 <p className="text-muted">
-                  No per-patient QC records match the current filters.
+                  No QC records match the current filters.
                 </p>
               ) : (
                 <RecordMetricsTable
@@ -574,7 +574,7 @@ function RecordMetricsTable({
         <thead>
           <tr>
             <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--card-bg)" }}>
-              Patient
+              Sample
             </th>
             <th>Batch</th>
             <th>Type</th>
@@ -629,13 +629,35 @@ function RecordMetricsTable({
                 }}
               >
                 <div>
-                  <code>
-                    {r.patient_im_lab_number ?? r.patient_lab_number ?? "—"}
-                  </code>
-                  {r.patient_name && (
-                    <div className="text-muted" style={{ fontSize: "0.8rem" }}>
-                      {r.patient_name}
-                    </div>
+                  {r.is_control ? (
+                    <>
+                      <code>{r.sample_label ?? "—"}</code>
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          fontWeight: 700,
+                          padding: "0.1em 0.4em",
+                          borderRadius: "0.2rem",
+                          background: "#fef3c7",
+                          color: "#92400e",
+                          marginLeft: "0.4rem",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Control
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <code>
+                        {r.patient_im_lab_number ?? r.patient_lab_number ?? "—"}
+                      </code>
+                      {r.patient_name && (
+                        <div className="text-muted" style={{ fontSize: "0.8rem" }}>
+                          {r.patient_name}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </td>

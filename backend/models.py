@@ -346,17 +346,23 @@ class VariantUpload(db.Model):
 
 
 class NgsQc(db.Model):
-    """QC metrics for an NGS run linked to a patient.
+    """QC metrics for an NGS run linked to a patient or a control sample.
 
     Two QC file types are supported: ``panel`` (panel-of-genes test) and
     ``exome`` (whole-exome). The three report-critical metrics are
     extracted into dedicated columns; all raw rows from the QC file are
     preserved as JSON in ``metrics`` for downstream analysis/plotting.
+
+    Controls (e.g. ``NA12878-26P1``) are stored with ``patient_id=None``
+    and ``is_control=True`` so they appear as standalone entries in the
+    QC dashboard for longitudinal comparison.
     """
     __tablename__ = "ngs_qc"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=False, index=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=True, index=True)
+    sample_label = db.Column(db.String(200), nullable=True, index=True)
+    is_control = db.Column(db.Boolean, nullable=False, default=False)
     qc_type = db.Column(db.String(20), nullable=False, default="panel")  # panel | exome
 
     # Batch label parsed from the QC filename — e.g. "26P1" (yy=year, P=panel, x=batch number)
@@ -391,6 +397,8 @@ class NgsQc(db.Model):
         return {
             "id": self.id,
             "patient_id": self.patient_id,
+            "sample_label": self.sample_label,
+            "is_control": self.is_control,
             "qc_type": self.qc_type,
             "batch": self.batch,
             "median_coverage": self.median_coverage,

@@ -456,6 +456,9 @@ export default function Upload() {
           <div>Batch: <code>{qcResult.batch ?? "—"}</code></div>
           <div>Type: {qcResult.qc_type}</div>
           <div>Matched: {qcResult.matched_count}</div>
+          {qcResult.control_count > 0 && (
+            <div>Controls: {qcResult.control_count}</div>
+          )}
           {qcResult.unmatched.length > 0 && (
             <div className="text-danger">
               Unmatched labels: {qcResult.unmatched.join(", ")}

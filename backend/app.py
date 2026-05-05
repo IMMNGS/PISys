@@ -45,6 +45,94 @@ def _ensure_databases(cfg):
         conn.close()
 
 
+def _sync_missing_columns(app):
+    """Auto-add missing columns to existing MySQL tables.
+
+    This project does not use Alembic, so when models gain new columns we
+    detect them at startup and issue ``ALTER TABLE ADD COLUMN`` statements.
+    Only MySQL is supported for this helper; SQLite tests use :memory:.
+    """
+    import time
+    from sqlalchemy import inspect, text
+    from sqlalchemy.dialects.mysql.base import MySQLTypeCompiler
+
+    dialect_name = db.engine.dialect.name
+    if dialect_name != "mysql":
+        return
+
+    compiler = MySQLTypeCompiler(db.engine.dialect)
+
+    with db.engine.connect() as lock_conn:
+        # Serialize across gunicorn workers so only one runs the migration at a time.
+        locked = lock_conn.execute(text("SELECT GET_LOCK('pisys_column_sync', 10)")).scalar()
+        if not locked:
+            app.logger.warning("Could not acquire column-sync lock; skipping migration in this worker.")
+            return
+
+        try:
+            inspector = inspect(db.engine)
+            with db.engine.connect() as conn:
+                for table_name, table in db.metadata.tables.items():
+                    if not inspector.has_table(table_name):
+                        continue
+
+                    for attempt in range(3):
+                        try:
+                            existing = {c["name"]: c for c in inspector.get_columns(table_name)}
+                            break
+                        except Exception as exc:
+                            if attempt < 2:
+                                time.sleep(0.2 * (attempt + 1))
+                            else:
+                                app.logger.warning("Could not inspect %s: %s", table_name, exc)
+                                existing = {}
+
+                    for col in table.columns:
+                        mysql_type = compiler.process(col.type)
+                        nullable = "NULL" if col.nullable else "NOT NULL"
+
+                        default_clause = ""
+                        if col.default is not None:
+                            arg = getattr(col.default, "arg", None)
+                            if arg is not None and not callable(arg):
+                                if isinstance(arg, bool):
+                                    default_clause = f" DEFAULT {1 if arg else 0}"
+                                elif isinstance(arg, (int, float)):
+                                    default_clause = f" DEFAULT {arg}"
+                                elif isinstance(arg, str):
+                                    default_clause = f" DEFAULT '{arg.replace(chr(39), chr(39)+chr(39))}'"
+
+                        if col.name not in existing:
+                            stmt = (
+                                f"ALTER TABLE `{table_name}` "
+                                f"ADD COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
+                            )
+                            action = "Added missing column"
+                        else:
+                            db_col = existing[col.name]
+                            db_nullable = db_col.get("nullable", True)
+                            if db_nullable == col.nullable:
+                                continue
+                            # Nullability mismatch — fix it with MODIFY COLUMN.
+                            stmt = (
+                                f"ALTER TABLE `{table_name}` "
+                                f"MODIFY COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
+                            )
+                            action = "Fixed nullability for column"
+
+                        try:
+                            conn.execute(text(stmt))
+                            conn.commit()
+                            app.logger.info("%s: %s.%s", action, table_name, col.name)
+                        except Exception as exc:
+                            conn.rollback()
+                            app.logger.warning(
+                                "Could not alter column %s.%s: %s", table_name, col.name, exc
+                            )
+        finally:
+            lock_conn.execute(text("SELECT RELEASE_LOCK('pisys_column_sync')"))
+
+
 def create_app(config_name="development"):
     """Application factory.
 
@@ -164,6 +252,7 @@ def create_app(config_name="development"):
                 )
             else:
                 raise
+        _sync_missing_columns(app)
         seed_default_admin_user()
 
     return app
