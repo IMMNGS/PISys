@@ -52,6 +52,7 @@ def _sync_missing_columns(app):
     detect them at startup and issue ``ALTER TABLE ADD COLUMN`` statements.
     Only MySQL is supported for this helper; SQLite tests use :memory:.
     """
+    import time
     from sqlalchemy import inspect, text
     from sqlalchemy.dialects.mysql.base import MySQLTypeCompiler
 
@@ -59,48 +60,65 @@ def _sync_missing_columns(app):
     if dialect_name != "mysql":
         return
 
-    inspector = inspect(db.engine)
-    conn = db.engine.connect()
     compiler = MySQLTypeCompiler(db.engine.dialect)
 
-    try:
-        for table_name, table in db.metadata.tables.items():
-            if not inspector.has_table(table_name):
-                continue
-            existing = {c["name"] for c in inspector.get_columns(table_name)}
-            for col in table.columns:
-                if col.name in existing:
-                    continue
-                # Let SQLAlchemy compile the type for MySQL.
-                mysql_type = compiler.process(col.type)
-                nullable = "NULL" if col.nullable else "NOT NULL"
+    with db.engine.connect() as lock_conn:
+        # Serialize across gunicorn workers so only one runs the migration at a time.
+        locked = lock_conn.execute(text("SELECT GET_LOCK('pisys_column_sync', 10)")).scalar()
+        if not locked:
+            app.logger.warning("Could not acquire column-sync lock; skipping migration in this worker.")
+            return
 
-                # Simple scalar defaults only; skip callables.
-                default_clause = ""
-                if col.default is not None:
-                    arg = getattr(col.default, "arg", None)
-                    if arg is not None and not callable(arg):
-                        if isinstance(arg, bool):
-                            default_clause = f" DEFAULT {1 if arg else 0}"
-                        elif isinstance(arg, (int, float)):
-                            default_clause = f" DEFAULT {arg}"
-                        elif isinstance(arg, str):
-                            default_clause = f" DEFAULT '{arg.replace(chr(39), chr(39)+chr(39))}'"
+        try:
+            inspector = inspect(db.engine)
+            with db.engine.connect() as conn:
+                for table_name, table in db.metadata.tables.items():
+                    if not inspector.has_table(table_name):
+                        continue
 
-                stmt = (
-                    f"ALTER TABLE `{table_name}` "
-                    f"ADD COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
-                )
-                try:
-                    conn.execute(text(stmt))
-                    conn.commit()
-                    app.logger.info("Added missing column: %s.%s", table_name, col.name)
-                except Exception as exc:
-                    app.logger.warning(
-                        "Could not add column %s.%s: %s", table_name, col.name, exc
-                    )
-    finally:
-        conn.close()
+                    for attempt in range(3):
+                        try:
+                            existing = {c["name"] for c in inspector.get_columns(table_name)}
+                            break
+                        except Exception as exc:
+                            if attempt < 2:
+                                time.sleep(0.2 * (attempt + 1))
+                            else:
+                                app.logger.warning("Could not inspect %s: %s", table_name, exc)
+                                existing = set()
+
+                    for col in table.columns:
+                        if col.name in existing:
+                            continue
+                        mysql_type = compiler.process(col.type)
+                        nullable = "NULL" if col.nullable else "NOT NULL"
+
+                        default_clause = ""
+                        if col.default is not None:
+                            arg = getattr(col.default, "arg", None)
+                            if arg is not None and not callable(arg):
+                                if isinstance(arg, bool):
+                                    default_clause = f" DEFAULT {1 if arg else 0}"
+                                elif isinstance(arg, (int, float)):
+                                    default_clause = f" DEFAULT {arg}"
+                                elif isinstance(arg, str):
+                                    default_clause = f" DEFAULT '{arg.replace(chr(39), chr(39)+chr(39))}'"
+
+                        stmt = (
+                            f"ALTER TABLE `{table_name}` "
+                            f"ADD COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
+                        )
+                        try:
+                            conn.execute(text(stmt))
+                            conn.commit()
+                            app.logger.info("Added missing column: %s.%s", table_name, col.name)
+                        except Exception as exc:
+                            conn.rollback()
+                            app.logger.warning(
+                                "Could not add column %s.%s: %s", table_name, col.name, exc
+                            )
+        finally:
+            lock_conn.execute(text("SELECT RELEASE_LOCK('pisys_column_sync')"))
 
 
 def create_app(config_name="development"):
