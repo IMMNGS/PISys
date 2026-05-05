@@ -78,18 +78,16 @@ def _sync_missing_columns(app):
 
                     for attempt in range(3):
                         try:
-                            existing = {c["name"] for c in inspector.get_columns(table_name)}
+                            existing = {c["name"]: c for c in inspector.get_columns(table_name)}
                             break
                         except Exception as exc:
                             if attempt < 2:
                                 time.sleep(0.2 * (attempt + 1))
                             else:
                                 app.logger.warning("Could not inspect %s: %s", table_name, exc)
-                                existing = set()
+                                existing = {}
 
                     for col in table.columns:
-                        if col.name in existing:
-                            continue
                         mysql_type = compiler.process(col.type)
                         nullable = "NULL" if col.nullable else "NOT NULL"
 
@@ -104,18 +102,32 @@ def _sync_missing_columns(app):
                                 elif isinstance(arg, str):
                                     default_clause = f" DEFAULT '{arg.replace(chr(39), chr(39)+chr(39))}'"
 
-                        stmt = (
-                            f"ALTER TABLE `{table_name}` "
-                            f"ADD COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
-                        )
+                        if col.name not in existing:
+                            stmt = (
+                                f"ALTER TABLE `{table_name}` "
+                                f"ADD COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
+                            )
+                            action = "Added missing column"
+                        else:
+                            db_col = existing[col.name]
+                            db_nullable = db_col.get("nullable", True)
+                            if db_nullable == col.nullable:
+                                continue
+                            # Nullability mismatch — fix it with MODIFY COLUMN.
+                            stmt = (
+                                f"ALTER TABLE `{table_name}` "
+                                f"MODIFY COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
+                            )
+                            action = "Fixed nullability for column"
+
                         try:
                             conn.execute(text(stmt))
                             conn.commit()
-                            app.logger.info("Added missing column: %s.%s", table_name, col.name)
+                            app.logger.info("%s: %s.%s", action, table_name, col.name)
                         except Exception as exc:
                             conn.rollback()
                             app.logger.warning(
-                                "Could not add column %s.%s: %s", table_name, col.name, exc
+                                "Could not alter column %s.%s: %s", table_name, col.name, exc
                             )
         finally:
             lock_conn.execute(text("SELECT RELEASE_LOCK('pisys_column_sync')"))
