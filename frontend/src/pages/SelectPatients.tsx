@@ -1165,6 +1165,7 @@ export default function SelectPatients() {
               <th>Sex</th>
               <th>Age</th>
               <th>Test Type</th>
+              <th>QC</th>
               <th className="disease-terms-col">Disease Terms</th>
               <th />
             </tr>
@@ -1218,6 +1219,7 @@ export default function SelectPatients() {
                   onToggle={toggleTest}
                 />
               </th>
+              <th />
               <th className="disease-terms-col">
                 <SearchableMultiSelect
                   selectedIds={selectedTerms}
@@ -1243,13 +1245,13 @@ export default function SelectPatients() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="text-center text-muted">
+                <td colSpan={10} className="text-center text-muted">
                   Loading…
                 </td>
               </tr>
             ) : patients.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center text-muted">
+                <td colSpan={10} className="text-center text-muted">
                   No patients match the current filters.
                 </td>
               </tr>
@@ -1280,6 +1282,14 @@ export default function SelectPatients() {
                     {p.age != null ? `${p.age} ${p.age_unit ?? ""}` : "—"}
                   </td>
                   <td>{p.type_of_test ?? "—"}</td>
+                  <td>
+                    <Link
+                      to={`/patients/${p.id}?tab=qc`}
+                      className="btn btn-outline-primary btn-sm"
+                    >
+                      View QC
+                    </Link>
+                  </td>
                   <td className="disease-terms-col">
                     {(p.hpo_terms?.length ?? 0) +
                       (p.disease_terms?.length ?? 0) >

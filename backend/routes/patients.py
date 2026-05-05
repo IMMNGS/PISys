@@ -26,7 +26,7 @@ patients_bp = Blueprint("patients", __name__)
 
 _FULL = dict(include_hpo=True, include_singletons=True,
              include_trios=True, include_vcf_files=True,
-             include_disease_terms=True)
+             include_disease_terms=True, include_variant_uploads=True)
 
 
 def _coerce_patient_date(value):

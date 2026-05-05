@@ -15,7 +15,7 @@ from docx.oxml.ns import qn
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
-from backend.models import db, Patient, Singleton, Trio
+from backend.models import db, Patient, Singleton, Trio, NgsQc
 from backend.routes.helpers import _patient_to_dict
 
 reports_bp = Blueprint("reports", __name__)
@@ -204,6 +204,20 @@ def _resolve_single_gene(patient):
     return ""
 
 
+def _resolve_patient_by_lab(identifier: str):
+    """Look up a patient by lab_number or im_lab_number.
+
+    Tries an exact match on ``lab_number`` first, then falls back to
+    ``im_lab_number``.  Returns the Patient or None.
+    """
+    if not identifier:
+        return None
+    patient = Patient.query.filter_by(lab_number=identifier).first()
+    if patient:
+        return patient
+    return Patient.query.filter_by(im_lab_number=identifier).first()
+
+
 def generate_table(doc, variants, include_inherited_from=False):
     """Insert a variant results table into a python-docx Document.
 
@@ -388,7 +402,7 @@ def generate_table_dmg(doc, patient):
     age_display = f"{patient.age or ''} {patient.age_unit or ''}".strip()
     row_data = [["REPORT DATE: ", _format_date(patient.report_date)]]
     info_pairs = [
-        ("Lab. #", f"{patient.im_lab_number or ''}/{patient.lab_number}"),
+        ("Lab. #", patient.im_lab_number or patient.lab_number or ""),
         ("Name", patient.name or ""),
         ("HKID", patient.hkid or ""),
         ("Date of Birth", _format_date(patient.dob)),
@@ -415,8 +429,40 @@ def generate_table_dmg(doc, patient):
     set_table_border_color(table, "FFFFFF")
     doc.add_paragraph()
 
-def generate_table_qc(doc):
-        """Insert the Sequencing Performance Metrics QC table."""
+def _fmt_qc_value(value, suffix=""):
+    """Format a numeric QC value for the report table; '' when missing."""
+    if value is None:
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if num.is_integer():
+        text = f"{int(num)}"
+    else:
+        text = f"{num:.1f}"
+    return text + suffix
+
+
+def _latest_qc_for_patient(patient):
+    """Return the most recent NgsQc row for a patient, or None."""
+    if patient is None or getattr(patient, "id", None) is None:
+        return None
+    return (
+        NgsQc.query
+        .filter_by(patient_id=patient.id)
+        .order_by(NgsQc.uploaded_at.desc())
+        .first()
+    )
+
+
+def generate_table_qc(doc, patient=None):
+        """Insert the Sequencing Performance Metrics QC table.
+
+        Auto-fills the % >20X, Uniformity, and Median Coverage cells from
+        the patient's most recent NgsQc record. Other cells (panel name,
+        gene/exon/base counts) remain templated for now.
+        """
         from docx.shared import Pt, Inches
 
         heading = doc.add_paragraph()
@@ -449,9 +495,17 @@ def generate_table_qc(doc):
             for run in cell.paragraphs[0].runs:
                 run.bold = True
 
+        qc = _latest_qc_for_patient(patient)
+        pct_20x_text = _fmt_qc_value(qc.pct_20x, "%") if qc else ""
+        uniformity_text = _fmt_qc_value(qc.uniformity_pct, "%") if qc else ""
+        median_cov_text = _fmt_qc_value(qc.median_coverage) if qc else ""
+
         row1_data = [
             "Immunological\nDisorders\nSuperPanel", "554", "15,798",
-            "2,359,627", "", "", "",
+            "2,359,627",
+            pct_20x_text,
+            uniformity_text,
+            median_cov_text,
         ]
         for i, val in enumerate(row1_data):
             table.cell(1, i).text = val
@@ -611,7 +665,7 @@ def create_word_document(
             generate_table(doc, i_variants, include_inherited_from=is_trio)
 
         # QC table
-        generate_table_qc(doc)
+        generate_table_qc(doc, patient)
 
         # Target region and gene list page
         doc.add_page_break()
@@ -722,8 +776,7 @@ def create_single_gene_word_document(patient):
 
     title_pairs = [
         ("REPORT DATE:", _format_date(patient.report_date)),
-        ("LAB#:", patient.lab_number or ""),
-        ("IM LAB#:", patient.im_lab_number or ""),
+        ("LAB#:", patient.im_lab_number or patient.lab_number or ""),
         ("NAME:", patient.name or ""),
         ("HKID:", patient.hkid or ""),
         ("SEX / AGE:", f"{patient.sex or ''} / {age_display}".strip(" /")),
@@ -764,7 +817,7 @@ def report_preview():
     if not lab_number:
         return jsonify({"error": "lab_number is required"}), 400
 
-    patient = Patient.query.filter_by(lab_number=lab_number).first()
+    patient = _resolve_patient_by_lab(lab_number)
     if not patient:
         return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
 
@@ -816,7 +869,7 @@ def generate_report():
     if not lab_number:
         return jsonify({"error": "lab_number is required"}), 400
 
-    patient = Patient.query.filter_by(lab_number=lab_number).first()
+    patient = _resolve_patient_by_lab(lab_number)
     if not patient:
         return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
 
@@ -840,7 +893,7 @@ def generate_report():
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # Keep filename format aligned with legacy patient_info3 output.
-    filename = f"patient_info_{patient.lab_number}_{timestamp}_{patient.im_lab_number}.docx"
+    filename = f"patient_info_{patient.im_lab_number or patient.lab_number}_{timestamp}.docx"
 
     return send_file(
         buf,
@@ -863,7 +916,7 @@ def generate_single_gene_report():
     if not lab_number:
         return jsonify({"error": "lab_number is required"}), 400
 
-    patient = Patient.query.filter_by(lab_number=lab_number).first()
+    patient = _resolve_patient_by_lab(lab_number)
     if not patient:
         return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
 
@@ -877,7 +930,7 @@ def generate_single_gene_report():
         return jsonify({"error": f"Single-gene report generation failed: {str(e)}"}), 500
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"single_gene_report_{patient.lab_number}_{timestamp}.docx"
+    filename = f"single_gene_report_{patient.im_lab_number or patient.lab_number}_{timestamp}.docx"
 
     return send_file(
         buf,

@@ -10,7 +10,7 @@ from difflib import SequenceMatcher
 
 def _patient_to_dict(patient, include_hpo=True, include_singletons=False,
                      include_trios=False, include_vcf_files=False,
-                     include_disease_terms=False):
+                     include_disease_terms=False, include_variant_uploads=False):
     """Serialize a patient."""
     return patient.to_dict(
         include_hpo=include_hpo,
@@ -18,6 +18,7 @@ def _patient_to_dict(patient, include_hpo=True, include_singletons=False,
         include_trios=include_trios,
         include_vcf_files=include_vcf_files,
         include_disease_terms=include_disease_terms,
+        include_variant_uploads=include_variant_uploads,
     )
 
 
@@ -294,6 +295,26 @@ def _parse_variant_xlsx_rows(file_storage):
         # Also skip one-cell note lines when first cell is verbose text,
         # while allowing canonical markers like I/A/C/N.
         if has_rv_column and rv and non_empty_count <= 1 and not re.fullmatch(r"[A-Z]{1,3}", rv):
+            continue
+
+        # STRICT FILTER: a row must contain at least one core variant identifier.
+        # This prevents patient metadata, footer notes, and accidental non-variant
+        # rows from being imported as variants.
+        core_fields = ("reportable_variant", "chr_pos", "hgvs_c")
+        has_core = any(
+            _normalize_variant_field(f, d.get(f)) is not None
+            for f in core_fields
+        )
+        # gene_names counts as a core field ONLY when it looks like a real
+        # gene symbol (no spaces).  Patient names like "John Smith" are
+        # rejected so they don't leak into the variant list.
+        if not has_core:
+            raw_gene = d.get("gene_names")
+            if raw_gene is not None:
+                norm_gene = _normalize_variant_field("gene_names", raw_gene)
+                if norm_gene is not None and " " not in norm_gene:
+                    has_core = True
+        if not has_core:
             continue
 
         result.append(d)

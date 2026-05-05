@@ -111,6 +111,12 @@ class Patient(db.Model):
         cascade="all, delete-orphan"
     )
 
+    # One-to-many: a patient can have many QC records
+    ngs_qc = db.relationship(
+        "NgsQc", backref="patient", lazy="dynamic",
+        cascade="all, delete-orphan"
+    )
+
     # Many-to-many: a patient can have many HPO terms
     hpo_terms = db.relationship("HPOTerm", secondary=patient_hpo, lazy="select",
                                 backref=db.backref("patients", lazy="dynamic"))
@@ -336,6 +342,143 @@ class VariantUpload(db.Model):
             "relative_path": self.relative_path,
             "file_size": self.file_size,
             "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
+        }
+
+
+class NgsQc(db.Model):
+    """QC metrics for an NGS run linked to a patient.
+
+    Two QC file types are supported: ``panel`` (panel-of-genes test) and
+    ``exome`` (whole-exome). The three report-critical metrics are
+    extracted into dedicated columns; all raw rows from the QC file are
+    preserved as JSON in ``metrics`` for downstream analysis/plotting.
+    """
+    __tablename__ = "ngs_qc"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=False, index=True)
+    qc_type = db.Column(db.String(20), nullable=False, default="panel")  # panel | exome
+
+    # Batch label parsed from the QC filename — e.g. "26P1" (yy=year, P=panel, x=batch number)
+    batch = db.Column(db.String(40), nullable=True, index=True)
+
+    # Report-critical metrics (rendered into the report's QC table)
+    median_coverage = db.Column(db.Float, nullable=True)
+    pct_20x = db.Column(db.Float, nullable=True)
+    uniformity_pct = db.Column(db.Float, nullable=True)
+
+    pass_fail = db.Column(db.String(20), nullable=True)  # PASS | FAIL | BORDERLINE
+    notes = db.Column(db.Text, nullable=True)
+
+    # Full raw metric set for THIS sample (JSON dict of every row in the QC file)
+    metrics = db.Column(db.Text, nullable=True)
+
+    # Positive control values from the same run (JSON dict, mirrors `metrics`)
+    positive_control = db.Column(db.Text, nullable=True)
+
+    original_filename = db.Column(db.String(500), nullable=True)
+    relative_path = db.Column(db.String(1000), nullable=True)
+    file_size = db.Column(db.BigInteger, nullable=True)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        import json
+        def _load(blob):
+            try:
+                return json.loads(blob) if blob else {}
+            except (TypeError, ValueError):
+                return {}
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "qc_type": self.qc_type,
+            "batch": self.batch,
+            "median_coverage": self.median_coverage,
+            "pct_20x": self.pct_20x,
+            "uniformity_pct": self.uniformity_pct,
+            "pass_fail": self.pass_fail,
+            "notes": self.notes,
+            "metrics": _load(self.metrics),
+            "positive_control": _load(self.positive_control),
+            "original_filename": self.original_filename,
+            "relative_path": self.relative_path,
+            "file_size": self.file_size,
+            "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
+        }
+
+
+class NgsQcBatch(db.Model):
+    """One row per QC file upload, independent of patient matches.
+
+    Even when a QC file contains no recognisable patient lab numbers,
+    the upload is persisted here so the positive control and batch
+    metadata are not lost.
+    """
+    __tablename__ = "ngs_qc_batches"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    qc_type = db.Column(db.String(20), nullable=False, default="panel")  # panel | exome
+    batch = db.Column(db.String(40), nullable=True, index=True)
+
+    # Positive control metadata from the uploaded file
+    positive_control_label = db.Column(db.String(500), nullable=True)
+    positive_control = db.Column(db.Text, nullable=True)  # JSON dict
+
+    original_filename = db.Column(db.String(500), nullable=True)
+    relative_path = db.Column(db.String(1000), nullable=True)
+    file_size = db.Column(db.BigInteger, nullable=True)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Summary of what happened during upload
+    matched_count = db.Column(db.Integer, nullable=False, default=0)
+    unmatched_labels = db.Column(db.Text, nullable=True)  # JSON list
+
+    def to_dict(self):
+        import json
+        def _load(blob):
+            try:
+                return json.loads(blob) if blob else {}
+            except (TypeError, ValueError):
+                return {}
+        return {
+            "id": self.id,
+            "qc_type": self.qc_type,
+            "batch": self.batch,
+            "positive_control_label": self.positive_control_label,
+            "positive_control": _load(self.positive_control),
+            "original_filename": self.original_filename,
+            "relative_path": self.relative_path,
+            "file_size": self.file_size,
+            "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
+            "matched_count": self.matched_count,
+            "unmatched_labels": _load(self.unmatched_labels),
+        }
+
+
+class VariantAuditLog(db.Model):
+    """Records field-level changes to variant records for CAP/CLIA audit trails."""
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=True, index=True)
+    variant_type = db.Column(db.String(20), nullable=False)  # singleton | trio
+    variant_id = db.Column(db.Integer, nullable=False, index=True)
+    field_name = db.Column(db.String(100), nullable=False)
+    old_value = db.Column(db.Text, nullable=True)
+    new_value = db.Column(db.Text, nullable=True)
+    changed_by = db.Column(db.String(80), nullable=False)
+    changed_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "variant_type": self.variant_type,
+            "variant_id": self.variant_id,
+            "field_name": self.field_name,
+            "old_value": self.old_value,
+            "new_value": self.new_value,
+            "changed_by": self.changed_by,
+            "changed_at": self.changed_at.isoformat() if self.changed_at else None,
         }
 
 

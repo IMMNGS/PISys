@@ -6,10 +6,11 @@ import {
   uploadVcfFile,
   uploadSingletonXlsx,
   uploadTrioXlsx,
+  uploadQcBulk,
   fetchVcfFiles,
   deleteVcfFile,
 } from "../api/client";
-import type { PatientInfo, VcfFileInfo } from "../types";
+import type { PatientInfo, VcfFileInfo, QcType, QcBulkUploadResult } from "../types";
 import SearchableSelect from "../components/SearchableSelect";
 
 type UploadType = "vcf" | "singleton" | "trio";
@@ -52,6 +53,13 @@ export default function Upload() {
     labNumber?: string;
     testType?: UploadType;
   } | null>(null);
+
+  // QC bulk upload state (no patient required)
+  const [qcFile, setQcFile] = useState<File | null>(null);
+  const [qcType, setQcType] = useState<QcType>("panel");
+  const [qcUploading, setQcUploading] = useState(false);
+  const [qcResult, setQcResult] = useState<QcBulkUploadResult | null>(null);
+  const [qcError, setQcError] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
@@ -116,21 +124,21 @@ export default function Upload() {
 
         // remember last upload for quick report generation
         setLastUploaded({
-          labNumber: selectedPatient?.lab_number,
+          labNumber: selectedPatient?.im_lab_number ?? selectedPatient?.lab_number,
           testType: uploadType,
         });
       } else if (uploadType === "singleton") {
         const r = await uploadSingletonXlsx(patientId, file);
         setStatus({ type: "success", msg: r.message });
         setLastUploaded({
-          labNumber: selectedPatient?.lab_number,
+          labNumber: selectedPatient?.im_lab_number ?? selectedPatient?.lab_number,
           testType: uploadType,
         });
       } else {
         const r = await uploadTrioXlsx(patientId, file);
         setStatus({ type: "success", msg: r.message });
         setLastUploaded({
-          labNumber: selectedPatient?.lab_number,
+          labNumber: selectedPatient?.im_lab_number ?? selectedPatient?.lab_number,
           testType: uploadType,
         });
       }
@@ -156,6 +164,21 @@ export default function Upload() {
       });
     } catch {
       setStatus({ type: "error", msg: "Failed to delete VCF file" });
+    }
+  };
+
+  const handleQcUpload = async () => {
+    if (!qcFile) return;
+    setQcUploading(true);
+    setQcError(null);
+    setQcResult(null);
+    try {
+      const result = await uploadQcBulk(qcFile, qcType);
+      setQcResult(result);
+    } catch (e: unknown) {
+      setQcError(e instanceof Error ? e.message : "QC upload failed");
+    } finally {
+      setQcUploading(false);
     }
   };
 
@@ -413,6 +436,74 @@ export default function Upload() {
           </div>
         </div>
       )}
+
+      {/* ── QC Bulk Upload (no patient required) ───────────────────── */}
+      <hr />
+      <h3>QC Bulk Upload</h3>
+      <p className="text-muted mb-2">
+        Upload a wide-format QC file (CSV / TSV) containing many samples.
+        The first column after the metric name is the positive control;
+        remaining columns are matched against patient lab numbers / IM numbers.
+      </p>
+
+      {qcError && (
+        <div className="alert alert-danger">{qcError}</div>
+      )}
+
+      {qcResult && (
+        <div className="alert alert-success">
+          <strong>Upload successful</strong>
+          <div>Batch: <code>{qcResult.batch ?? "—"}</code></div>
+          <div>Type: {qcResult.qc_type}</div>
+          <div>Matched: {qcResult.matched_count}</div>
+          {qcResult.unmatched.length > 0 && (
+            <div className="text-danger">
+              Unmatched labels: {qcResult.unmatched.join(", ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="card mb-2">
+        <div className="card-header primary">Upload QC File</div>
+        <div className="card-body">
+          <div className="row mb-1">
+            <div className="col-2">
+              <label className="mb-1"><strong>QC Type</strong></label>
+              <div className="flex-gap" style={{ flexWrap: "wrap" }}>
+                {(["panel", "exome"] as QcType[]).map((t) => (
+                  <label key={t} style={{ cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="qcType"
+                      value={t}
+                      checked={qcType === t}
+                      onChange={() => setQcType(t)}
+                    />{" "}
+                    {t}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="col-2">
+              <label className="mb-1"><strong>Choose file</strong></label>
+              <input
+                type="file"
+                className="form-control"
+                accept=".csv,.tsv"
+                onChange={(e) => setQcFile(e.target.files?.[0] ?? null)}
+              />
+            </div>
+          </div>
+          <button
+            className="btn btn-primary mt-1"
+            disabled={qcUploading || !qcFile}
+            onClick={handleQcUpload}
+          >
+            {qcUploading ? "Uploading…" : "Upload QC"}
+          </button>
+        </div>
+      </div>
     </>
   );
 }
