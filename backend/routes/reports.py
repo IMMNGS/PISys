@@ -10,6 +10,7 @@ import os
 import re
 import tempfile
 from datetime import datetime
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
@@ -248,6 +249,7 @@ def generate_table(doc, variants, include_inherited_from=False):
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                     paragraph.paragraph_format.space_before = Pt(0)
                     paragraph.paragraph_format.space_after = Pt(0)
                     paragraph.paragraph_format.left_indent = Inches(0.1)
@@ -393,6 +395,7 @@ def generate_table_dmg(doc, patient):
     for row in table.rows:
         for cell in row.cells:
             for paragraph in cell.paragraphs:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 paragraph.paragraph_format.space_before = Pt(0.1)
                 paragraph.paragraph_format.space_after = Pt(0.1)
                 paragraph.paragraph_format.left_indent = Inches(0.1)
@@ -480,6 +483,7 @@ def generate_table_qc(doc, patient=None):
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                     paragraph.paragraph_format.space_before = Pt(0)
                     paragraph.paragraph_format.space_after = Pt(0)
                     paragraph.paragraph_format.left_indent = Inches(0.1)
@@ -544,6 +548,7 @@ def create_word_document(
         style = doc.styles["Normal"]
         style.font.name = "Calibri"
         style.font.size = Pt(12)
+        style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
         generate_table_dmg(doc, patient)
 
@@ -767,6 +772,7 @@ def create_single_gene_word_document(patient):
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
     style.font.size = Pt(12)
+    style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
     age_display = str(patient.age or "")
     if patient.age_unit:

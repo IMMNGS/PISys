@@ -45,6 +45,64 @@ def _ensure_databases(cfg):
         conn.close()
 
 
+def _sync_missing_columns(app):
+    """Auto-add missing columns to existing MySQL tables.
+
+    This project does not use Alembic, so when models gain new columns we
+    detect them at startup and issue ``ALTER TABLE ADD COLUMN`` statements.
+    Only MySQL is supported for this helper; SQLite tests use :memory:.
+    """
+    from sqlalchemy import inspect, text
+    from sqlalchemy.dialects.mysql.base import MySQLTypeCompiler
+
+    dialect_name = db.engine.dialect.name
+    if dialect_name != "mysql":
+        return
+
+    inspector = inspect(db.engine)
+    conn = db.engine.connect()
+    compiler = MySQLTypeCompiler(db.engine.dialect)
+
+    try:
+        for table_name, table in db.metadata.tables.items():
+            if not inspector.has_table(table_name):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table_name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                # Let SQLAlchemy compile the type for MySQL.
+                mysql_type = compiler.process(col.type)
+                nullable = "NULL" if col.nullable else "NOT NULL"
+
+                # Simple scalar defaults only; skip callables.
+                default_clause = ""
+                if col.default is not None:
+                    arg = getattr(col.default, "arg", None)
+                    if arg is not None and not callable(arg):
+                        if isinstance(arg, bool):
+                            default_clause = f" DEFAULT {1 if arg else 0}"
+                        elif isinstance(arg, (int, float)):
+                            default_clause = f" DEFAULT {arg}"
+                        elif isinstance(arg, str):
+                            default_clause = f" DEFAULT '{arg.replace(chr(39), chr(39)+chr(39))}'"
+
+                stmt = (
+                    f"ALTER TABLE `{table_name}` "
+                    f"ADD COLUMN `{col.name}` {mysql_type} {nullable}{default_clause}"
+                )
+                try:
+                    conn.execute(text(stmt))
+                    conn.commit()
+                    app.logger.info("Added missing column: %s.%s", table_name, col.name)
+                except Exception as exc:
+                    app.logger.warning(
+                        "Could not add column %s.%s: %s", table_name, col.name, exc
+                    )
+    finally:
+        conn.close()
+
+
 def create_app(config_name="development"):
     """Application factory.
 
@@ -164,6 +222,7 @@ def create_app(config_name="development"):
                 )
             else:
                 raise
+        _sync_missing_columns(app)
         seed_default_admin_user()
 
     return app
