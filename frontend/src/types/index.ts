@@ -121,7 +121,9 @@ export type QcType = "panel" | "exome";
 
 export interface NgsQcInfo {
   id: number;
-  patient_id: number;
+  patient_id: number | null;
+  sample_label: string | null;
+  is_control: boolean;
   qc_type: QcType;
   batch: string | null;
   median_coverage: number | null;
@@ -144,8 +146,10 @@ export interface QcBulkUploadResult {
   positive_control_label: string;
   positive_control: Record<string, string>;
   matched_count: number;
+  control_count: number;
   unmatched: string[];
   records: NgsQcInfo[];
+  control_records: NgsQcInfo[];
 }
 
 export interface NgsQcBatchInfo {

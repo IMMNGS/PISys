@@ -166,6 +166,17 @@ def _extract_batch_from_label(label: str) -> str | None:
     return f"{yy}P{int(num)}"
 
 
+def _is_control_label(label: str) -> bool:
+    """Return True if the sample label looks like a positive control.
+
+    Controls typically follow the format ``xxxx_yyPz`` (or ``xxxx-yyPz``)
+    where ``yyPz`` is the batch token, e.g. ``NA12878-26P1``.
+    """
+    if not label:
+        return False
+    return _BATCH_RE.search(label) is not None
+
+
 # ── Routes ──────────────────────────────────────────────────────────────
 
 @qc_bp.route("/patients/<int:patient_id>/qc", methods=["GET"])
@@ -243,7 +254,7 @@ def list_all_qc_records():
     qc_type = (request.args.get("qc_type") or "").strip().lower() or None
     pass_fail = (request.args.get("pass_fail") or "").strip().upper() or None
 
-    query = NgsQc.query.join(Patient, NgsQc.patient_id == Patient.id)
+    query = NgsQc.query.outerjoin(Patient, NgsQc.patient_id == Patient.id)
 
     if batch:
         query = query.filter(NgsQc.batch.ilike(f"%{batch}%"))
@@ -274,7 +285,7 @@ def qc_stats():
     batch = (request.args.get("batch") or "").strip() or None
     qc_type = (request.args.get("qc_type") or "").strip().lower() or None
 
-    query = NgsQc.query
+    query = NgsQc.query.filter(NgsQc.is_control == False)
     if batch:
         query = query.filter(NgsQc.batch.ilike(f"%{batch}%"))
     if qc_type in ("panel", "exome"):
@@ -291,7 +302,7 @@ def qc_stats():
     borderline_count = query.filter(NgsQc.pass_fail == "BORDERLINE").count()
     total_count = query.count()
 
-    # Batch-level summary (last 20 batches)
+    # Batch-level summary (last 20 batches) — exclude controls
     batch_query = (
         db.session.query(
             NgsQc.batch,
@@ -302,6 +313,7 @@ def qc_stats():
             db.func.count(NgsQc.id).label("record_count"),
         )
         .filter(NgsQc.batch.isnot(None))
+        .filter(NgsQc.is_control == False)
     )
     if batch:
         batch_query = batch_query.filter(NgsQc.batch.ilike(f"%{batch}%"))
@@ -390,7 +402,7 @@ def download_qc_records():
     qc_type = (request.args.get("qc_type") or "").strip().lower() or None
     pass_fail = (request.args.get("pass_fail") or "").strip().upper() or None
 
-    query = NgsQc.query.join(Patient, NgsQc.patient_id == Patient.id)
+    query = NgsQc.query.outerjoin(Patient, NgsQc.patient_id == Patient.id)
 
     if batch:
         query = query.filter(NgsQc.batch.ilike(f"%{batch}%"))
@@ -423,8 +435,8 @@ def download_qc_records():
 
     # Build headers
     fixed_headers = [
-        "Patient Lab #", "IM Lab #", "Patient Name", "Batch",
-        "Type", "Pass / Fail", "Uploaded At", "Notes", "Original Filename",
+        "Sample Label", "Patient Lab #", "IM Lab #", "Patient Name", "Control",
+        "Batch", "Type", "Pass / Fail", "Uploaded At", "Notes", "Original Filename",
     ]
     headers = fixed_headers + metric_keys
     ws.append(headers)
@@ -447,9 +459,11 @@ def download_qc_records():
     for r in records:
         metrics = json.loads(r.metrics) if r.metrics else {}
         row = [
+            r.sample_label,
             r.patient.lab_number if r.patient else None,
             r.patient.im_lab_number if r.patient else None,
             r.patient.name if r.patient else None,
+            "Yes" if r.is_control else "No",
             r.batch,
             r.qc_type,
             r.pass_fail,
@@ -528,11 +542,18 @@ def upload_qc_bulk():
     if not parsed_columns:
         return jsonify({"error": "Could not parse any samples from file"}), 400
 
-    # First sample column is the positive control; the rest are patient samples.
-    pos_ctrl_label, pos_ctrl_metrics = parsed_columns[0]
+    # Identify controls by the ``xxxx_yyPz`` pattern; fall back to treating
+    # the first column as the control when no pattern matches (legacy files).
+    control_columns = [(label, metrics) for label, metrics in parsed_columns if _is_control_label(label)]
+    patient_columns = [(label, metrics) for label, metrics in parsed_columns if not _is_control_label(label)]
+
+    if not control_columns and parsed_columns:
+        control_columns = [parsed_columns[0]]
+        patient_columns = parsed_columns[1:]
+
+    pos_ctrl_label, pos_ctrl_metrics = control_columns[0] if control_columns else (None, None)
     pos_ctrl_blob = json.dumps(pos_ctrl_metrics) if pos_ctrl_metrics else None
 
-    patient_columns = parsed_columns[1:]
     patient_labels = [label for label, _ in patient_columns]
 
     # Batch comes from the explicit form field, else parsed from filename,
@@ -575,10 +596,35 @@ def upload_qc_bulk():
 
     matched = []
     unmatched = []
+    control_records = []
     pass_fail_form = (request.form.get("pass_fail") or "").strip().upper() or None
     notes_form = request.form.get("notes") or None
 
     try:
+        # Create standalone QC entries for every control column so they
+        # appear in the dashboard for longitudinal comparison.
+        for label, sample_metrics in control_columns:
+            extracted = _extract_report_metrics(qc_type, sample_metrics)
+            qc = NgsQc(
+                patient_id=None,
+                sample_label=label,
+                is_control=True,
+                qc_type=qc_type,
+                batch=batch,
+                median_coverage=extracted["median_coverage"],
+                pct_20x=extracted["pct_20x"],
+                uniformity_pct=extracted["uniformity_pct"],
+                pass_fail=pass_fail_form,
+                notes=notes_form,
+                metrics=json.dumps(sample_metrics) if sample_metrics else None,
+                positive_control=pos_ctrl_blob,
+                original_filename=f.filename,
+                relative_path=relative_path,
+                file_size=file_size,
+            )
+            db.session.add(qc)
+            control_records.append(qc)
+
         for label, sample_metrics in patient_columns:
             patient = patients_by_lab.get(label)
             if not patient:
@@ -589,6 +635,8 @@ def upload_qc_bulk():
 
             qc = NgsQc(
                 patient_id=patient.id,
+                sample_label=label,
+                is_control=False,
                 qc_type=qc_type,
                 batch=batch,
                 median_coverage=extracted["median_coverage"],
@@ -634,8 +682,10 @@ def upload_qc_bulk():
         "positive_control_label": pos_ctrl_label,
         "positive_control": pos_ctrl_metrics,
         "matched_count": len(matched),
+        "control_count": len(control_records),
         "unmatched": unmatched,
         "records": [r.to_dict() for r in matched],
+        "control_records": [r.to_dict() for r in control_records],
     }), 201
 
 
