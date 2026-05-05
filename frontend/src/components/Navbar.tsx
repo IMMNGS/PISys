@@ -23,6 +23,9 @@ export default function Navbar() {
             <NavLink to="/upload">Upload</NavLink>
           </li>
           <li>
+            <NavLink to="/qc">QC</NavLink>
+          </li>
+          <li>
             <NavLink to="/report">Report</NavLink>
           </li>
           <li>

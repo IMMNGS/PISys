@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import {
   fetchPatient,
   removeHPO,
@@ -1112,9 +1112,25 @@ function TermsTab({
 
 export default function PatientDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [patient, setPatient] = useState<PatientInfo | null>(null);
   const [error, setError] = useState(false);
-  const [tab, setTab] = useState<Tab>("overview");
+  const validTabs: Tab[] = ["overview", "variants", "qc", "files", "terms"];
+  const urlTab = searchParams.get("tab") as Tab | null;
+  const [tab, setTab] = useState<Tab>(validTabs.includes(urlTab as Tab) ? (urlTab as Tab) : "overview");
+
+  const handleSetTab = useCallback((newTab: Tab) => {
+    setTab(newTab);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (newTab === "overview") {
+        next.delete("tab");
+      } else {
+        next.set("tab", newTab);
+      }
+      return next;
+    });
+  }, [setSearchParams]);
 
   // Patient edit state
   const [editing, setEditing] = useState(false);
@@ -1260,7 +1276,7 @@ export default function PatientDetail() {
           <button
             key={key}
             className={`tab${tab === key ? " tab-active" : ""}`}
-            onClick={() => setTab(key)}
+            onClick={() => handleSetTab(key as Tab)}
           >
             {label}
           </button>

@@ -7,6 +7,7 @@ import type {
   TrioInfo,
   VcfFileInfo,
   NgsQcInfo,
+  NgsQcBatchInfo,
   QcType,
   QcBulkUploadResult,
   VariantAuditEntry,
@@ -995,6 +996,14 @@ export function createQcRecord(
 
 export function deleteQcRecord(qcId: number): Promise<{ message: string }> {
   return json(`${BASE}/qc/${qcId}`, { method: "DELETE" });
+}
+
+export function fetchQcBatches(): Promise<NgsQcBatchInfo[]> {
+  return json(`${BASE}/qc/batches`);
+}
+
+export function deleteQcBatch(batchId: number): Promise<{ message: string }> {
+  return json(`${BASE}/qc/batch/${batchId}`, { method: "DELETE" });
 }
 
 export function fetchVariantAudit(

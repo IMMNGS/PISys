@@ -44,7 +44,7 @@ export default function Report() {
       const result = await fetchPatientOptions(search, limit, offset);
       return {
         items: result.items
-          .map((p) => p.lab_number)
+          .map((p) => p.im_lab_number ?? p.lab_number)
           .filter((ln): ln is string => !!ln),
         total: result.total,
       };
@@ -82,7 +82,7 @@ export default function Report() {
   // Parse query params for automatic behaviour
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const ln = params.get("lab_number");
+    const ln = params.get("lab_number") || params.get("im_lab_number");
     const tt = params.get("test_type");
     const auto = params.get("auto_preview");
     if (ln) setLabNumber(ln);
@@ -285,6 +285,10 @@ export default function Report() {
           <div className="card mb-2">
             <div className="card-header">Patient Information</div>
             <div className="card-body">
+              <p>
+                <strong>Lab #:</strong>{" "}
+                <code>{patient.im_lab_number || patient.lab_number || "—"}</code>
+              </p>
               <p>
                 <strong>Name:</strong> {patient.name || "—"}
               </p>

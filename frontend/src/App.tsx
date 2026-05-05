@@ -17,6 +17,7 @@ import Upload from "./pages/Upload";
 import Report from "./pages/Report";
 import DescriptiveStats from "./pages/DescriptiveStats";
 import Login from "./pages/Login";
+import QcOverview from "./pages/QcOverview";
 import AdminAudit from "./pages/AdminAudit";
 
 function AuthGate() {
@@ -70,6 +71,7 @@ export default function App() {
               <Route path="/upload" element={<Upload />} />
               <Route path="/report" element={<Report />} />
               <Route path="/manage-hpo" element={<ManageHpo />} />
+              <Route path="/qc" element={<QcOverview />} />
               <Route path="/stats" element={<DescriptiveStats />} />
               <Route element={<AdminGate />}>
                 <Route path="/admin" element={<AdminAudit />} />

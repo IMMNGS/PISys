@@ -72,7 +72,7 @@ if [[ "$MODE" == "setup" || ! -d "$PROJECT_DIR/.venv" || ! -d "$PROJECT_DIR/data
   source "$PROJECT_DIR/.venv/bin/activate"
 
   info "Installing Python dependencies"
-  pip install -r requirements.txt
+  python -m pip install -r requirements.txt
 
   info "Creating data directories"
   mkdir -p "$PROJECT_DIR/data/vcf"
@@ -123,10 +123,10 @@ if [[ "$MODE" == "production" ]]; then
   (cd frontend && npm ci && npm run build)
 
   info "Ensuring Python dependencies"
-  pip install -r requirements.txt
+  python -m pip install -r requirements.txt
 
   info "Launching Gunicorn"
-  exec gunicorn -c gunicorn.conf.py run:app
+  exec python -m gunicorn -c gunicorn.conf.py run:app
 else
   info "Starting in development mode"
   info "Run frontend separately: (cd frontend && npm run dev)"

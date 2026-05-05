@@ -151,7 +151,19 @@ def create_app(config_name="development"):
     # Create tables if they don't exist yet
     _ensure_databases(config_class)
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+        except Exception as exc:
+            # MySQL error 1050 = "Table already exists"
+            # This happens when multiple Gunicorn workers race on startup.
+            # We only ignore that specific error; everything else is fatal.
+            orig = getattr(exc, "orig", None)
+            if orig and hasattr(orig, "args") and len(orig.args) >= 2 and orig.args[0] == 1050:
+                app.logger.warning(
+                    "Table already exists (multi-worker race on startup): %s", orig.args[1]
+                )
+            else:
+                raise
         seed_default_admin_user()
 
     return app

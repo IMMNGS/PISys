@@ -204,6 +204,20 @@ def _resolve_single_gene(patient):
     return ""
 
 
+def _resolve_patient_by_lab(identifier: str):
+    """Look up a patient by lab_number or im_lab_number.
+
+    Tries an exact match on ``lab_number`` first, then falls back to
+    ``im_lab_number``.  Returns the Patient or None.
+    """
+    if not identifier:
+        return None
+    patient = Patient.query.filter_by(lab_number=identifier).first()
+    if patient:
+        return patient
+    return Patient.query.filter_by(im_lab_number=identifier).first()
+
+
 def generate_table(doc, variants, include_inherited_from=False):
     """Insert a variant results table into a python-docx Document.
 
@@ -388,7 +402,7 @@ def generate_table_dmg(doc, patient):
     age_display = f"{patient.age or ''} {patient.age_unit or ''}".strip()
     row_data = [["REPORT DATE: ", _format_date(patient.report_date)]]
     info_pairs = [
-        ("Lab. #", f"{patient.im_lab_number or ''}/{patient.lab_number}"),
+        ("Lab. #", patient.im_lab_number or patient.lab_number or ""),
         ("Name", patient.name or ""),
         ("HKID", patient.hkid or ""),
         ("Date of Birth", _format_date(patient.dob)),
@@ -762,8 +776,7 @@ def create_single_gene_word_document(patient):
 
     title_pairs = [
         ("REPORT DATE:", _format_date(patient.report_date)),
-        ("LAB#:", patient.lab_number or ""),
-        ("IM LAB#:", patient.im_lab_number or ""),
+        ("LAB#:", patient.im_lab_number or patient.lab_number or ""),
         ("NAME:", patient.name or ""),
         ("HKID:", patient.hkid or ""),
         ("SEX / AGE:", f"{patient.sex or ''} / {age_display}".strip(" /")),
@@ -804,7 +817,7 @@ def report_preview():
     if not lab_number:
         return jsonify({"error": "lab_number is required"}), 400
 
-    patient = Patient.query.filter_by(lab_number=lab_number).first()
+    patient = _resolve_patient_by_lab(lab_number)
     if not patient:
         return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
 
@@ -856,7 +869,7 @@ def generate_report():
     if not lab_number:
         return jsonify({"error": "lab_number is required"}), 400
 
-    patient = Patient.query.filter_by(lab_number=lab_number).first()
+    patient = _resolve_patient_by_lab(lab_number)
     if not patient:
         return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
 
@@ -880,7 +893,7 @@ def generate_report():
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # Keep filename format aligned with legacy patient_info3 output.
-    filename = f"patient_info_{patient.lab_number}_{timestamp}_{patient.im_lab_number}.docx"
+    filename = f"patient_info_{patient.im_lab_number or patient.lab_number}_{timestamp}.docx"
 
     return send_file(
         buf,
@@ -903,7 +916,7 @@ def generate_single_gene_report():
     if not lab_number:
         return jsonify({"error": "lab_number is required"}), 400
 
-    patient = Patient.query.filter_by(lab_number=lab_number).first()
+    patient = _resolve_patient_by_lab(lab_number)
     if not patient:
         return jsonify({"error": f"No patient with lab_number '{lab_number}'"}), 404
 
@@ -917,7 +930,7 @@ def generate_single_gene_report():
         return jsonify({"error": f"Single-gene report generation failed: {str(e)}"}), 500
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"single_gene_report_{patient.lab_number}_{timestamp}.docx"
+    filename = f"single_gene_report_{patient.im_lab_number or patient.lab_number}_{timestamp}.docx"
 
     return send_file(
         buf,

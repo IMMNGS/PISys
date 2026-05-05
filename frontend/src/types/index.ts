@@ -148,6 +148,20 @@ export interface QcBulkUploadResult {
   records: NgsQcInfo[];
 }
 
+export interface NgsQcBatchInfo {
+  id: number;
+  qc_type: QcType;
+  batch: string | null;
+  positive_control_label: string | null;
+  positive_control: Record<string, string>;
+  original_filename: string | null;
+  relative_path: string | null;
+  file_size: number | null;
+  uploaded_at: string | null;
+  matched_count: number;
+  unmatched_labels: string[];
+}
+
 export interface VariantAuditEntry {
   id: number;
   patient_id: number | null;

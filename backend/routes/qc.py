@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, abort, jsonify, request, current_app
 from werkzeug.utils import secure_filename
 
-from backend.models import db, Patient, NgsQc, VariantAuditLog
+from backend.models import db, Patient, NgsQc, NgsQcBatch, VariantAuditLog
 
 qc_bp = Blueprint("qc", __name__)
 
@@ -337,6 +337,21 @@ def upload_qc_bulk():
             db.session.add(qc)
             matched.append(qc)
 
+        # Persist a batch row even when zero patients matched so the
+        # positive control and file metadata are never lost.
+        batch_record = NgsQcBatch(
+            qc_type=qc_type,
+            batch=batch,
+            positive_control_label=pos_ctrl_label,
+            positive_control=pos_ctrl_blob,
+            original_filename=f.filename,
+            relative_path=relative_path,
+            file_size=file_size,
+            matched_count=len(matched),
+            unmatched_labels=json.dumps(unmatched) if unmatched else None,
+        )
+        db.session.add(batch_record)
+
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -380,6 +395,45 @@ def delete_qc(qc_id):
     db.session.delete(qc)
     db.session.commit()
     return jsonify({"message": "QC record deleted"}), 200
+
+
+@qc_bp.route("/qc/batches", methods=["GET"])
+def list_qc_batches():
+    """List all QC file uploads (batches), including those with zero patient matches."""
+    batches = (
+        NgsQcBatch.query
+        .order_by(NgsQcBatch.uploaded_at.desc())
+        .all()
+    )
+    return jsonify([b.to_dict() for b in batches])
+
+
+@qc_bp.route("/qc/batch/<int:batch_id>", methods=["DELETE"])
+def delete_qc_batch(batch_id):
+    """Delete a QC batch and all associated per-patient NgsQc records.
+
+    Also removes the underlying file if nothing else references it.
+    """
+    batch = db.session.get(NgsQcBatch, batch_id)
+    if not batch:
+        abort(404)
+
+    # Delete all per-patient QC rows linked to this upload.
+    if batch.relative_path:
+        NgsQc.query.filter(NgsQc.relative_path == batch.relative_path).delete(
+            synchronize_session=False
+        )
+
+        # Delete the file on disk if it exists.
+        qc_dir = current_app.config.get("QC_DIR", "")
+        if qc_dir:
+            disk_path = os.path.join(qc_dir, batch.relative_path)
+            if os.path.isfile(disk_path):
+                os.remove(disk_path)
+
+    db.session.delete(batch)
+    db.session.commit()
+    return jsonify({"message": "QC batch deleted"}), 200
 
 
 @qc_bp.route("/patients/<int:patient_id>/variant_audit", methods=["GET"])

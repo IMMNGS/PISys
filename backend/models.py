@@ -407,9 +407,56 @@ class NgsQc(db.Model):
         }
 
 
+class NgsQcBatch(db.Model):
+    """One row per QC file upload, independent of patient matches.
+
+    Even when a QC file contains no recognisable patient lab numbers,
+    the upload is persisted here so the positive control and batch
+    metadata are not lost.
+    """
+    __tablename__ = "ngs_qc_batches"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    qc_type = db.Column(db.String(20), nullable=False, default="panel")  # panel | exome
+    batch = db.Column(db.String(40), nullable=True, index=True)
+
+    # Positive control metadata from the uploaded file
+    positive_control_label = db.Column(db.String(500), nullable=True)
+    positive_control = db.Column(db.Text, nullable=True)  # JSON dict
+
+    original_filename = db.Column(db.String(500), nullable=True)
+    relative_path = db.Column(db.String(1000), nullable=True)
+    file_size = db.Column(db.BigInteger, nullable=True)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Summary of what happened during upload
+    matched_count = db.Column(db.Integer, nullable=False, default=0)
+    unmatched_labels = db.Column(db.Text, nullable=True)  # JSON list
+
+    def to_dict(self):
+        import json
+        def _load(blob):
+            try:
+                return json.loads(blob) if blob else {}
+            except (TypeError, ValueError):
+                return {}
+        return {
+            "id": self.id,
+            "qc_type": self.qc_type,
+            "batch": self.batch,
+            "positive_control_label": self.positive_control_label,
+            "positive_control": _load(self.positive_control),
+            "original_filename": self.original_filename,
+            "relative_path": self.relative_path,
+            "file_size": self.file_size,
+            "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
+            "matched_count": self.matched_count,
+            "unmatched_labels": _load(self.unmatched_labels),
+        }
+
+
 class VariantAuditLog(db.Model):
     """Records field-level changes to variant records for CAP/CLIA audit trails."""
-    __tablename__ = "variant_audit_log"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=True, index=True)
