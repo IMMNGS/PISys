@@ -162,6 +162,34 @@ export interface NgsQcBatchInfo {
   unmatched_labels: string[];
 }
 
+export interface QcRecordWithPatient extends NgsQcInfo {
+  patient_lab_number: string | null;
+  patient_im_lab_number: string | null;
+  patient_name: string | null;
+}
+
+export interface QcStats {
+  averages: {
+    median_coverage: number | null;
+    pct_20x: number | null;
+    uniformity_pct: number | null;
+  };
+  pass_fail: {
+    pass: number;
+    fail: number;
+    borderline: number;
+    total: number;
+  };
+  batch_summaries: {
+    batch: string;
+    qc_type: string;
+    avg_median_coverage: number | null;
+    avg_pct_20x: number | null;
+    avg_uniformity_pct: number | null;
+    record_count: number;
+  }[];
+}
+
 export interface VariantAuditEntry {
   id: number;
   patient_id: number | null;

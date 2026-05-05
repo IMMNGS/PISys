@@ -11,6 +11,8 @@ import type {
   QcType,
   QcBulkUploadResult,
   VariantAuditEntry,
+  QcRecordWithPatient,
+  QcStats,
 } from "../types";
 
 const BASE = "/api";
@@ -1004,6 +1006,27 @@ export function fetchQcBatches(): Promise<NgsQcBatchInfo[]> {
 
 export function deleteQcBatch(batchId: number): Promise<{ message: string }> {
   return json(`${BASE}/qc/batch/${batchId}`, { method: "DELETE" });
+}
+
+export function fetchAllQcRecords(
+  filters: { batch?: string; qc_type?: string; pass_fail?: string } = {},
+): Promise<QcRecordWithPatient[]> {
+  const params = new URLSearchParams();
+  if (filters.batch) params.set("batch", filters.batch);
+  if (filters.qc_type) params.set("qc_type", filters.qc_type);
+  if (filters.pass_fail) params.set("pass_fail", filters.pass_fail);
+  const qs = params.toString();
+  return json(`${BASE}/qc/records${qs ? "?" + qs : ""}`);
+}
+
+export function fetchQcStats(
+  filters: { batch?: string; qc_type?: string } = {},
+): Promise<QcStats> {
+  const params = new URLSearchParams();
+  if (filters.batch) params.set("batch", filters.batch);
+  if (filters.qc_type) params.set("qc_type", filters.qc_type);
+  const qs = params.toString();
+  return json(`${BASE}/qc/stats${qs ? "?" + qs : ""}`);
 }
 
 export function fetchVariantAudit(

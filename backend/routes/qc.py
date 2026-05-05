@@ -23,7 +23,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from flask import Blueprint, abort, jsonify, request, current_app
+from flask import Blueprint, abort, jsonify, request, current_app, send_file
 from werkzeug.utils import secure_filename
 
 from backend.models import db, Patient, NgsQc, NgsQcBatch, VariantAuditLog
@@ -228,6 +228,274 @@ def create_qc_manual(patient_id):
     db.session.add(qc)
     db.session.commit()
     return jsonify(qc.to_dict()), 201
+
+
+@qc_bp.route("/qc/records", methods=["GET"])
+def list_all_qc_records():
+    """Return all per-patient QC records enriched with patient lab info.
+
+    Query params (all optional):
+        batch        — filter by batch label
+        qc_type      — "panel" | "exome"
+        pass_fail    — "PASS" | "FAIL" | "BORDERLINE"
+    """
+    batch = (request.args.get("batch") or "").strip() or None
+    qc_type = (request.args.get("qc_type") or "").strip().lower() or None
+    pass_fail = (request.args.get("pass_fail") or "").strip().upper() or None
+
+    query = NgsQc.query.join(Patient, NgsQc.patient_id == Patient.id)
+
+    if batch:
+        query = query.filter(NgsQc.batch.ilike(f"%{batch}%"))
+    if qc_type in ("panel", "exome"):
+        query = query.filter(NgsQc.qc_type == qc_type)
+    if pass_fail in ("PASS", "FAIL", "BORDERLINE"):
+        query = query.filter(NgsQc.pass_fail == pass_fail)
+
+    records = query.order_by(NgsQc.uploaded_at.desc()).all()
+    result = []
+    for r in records:
+        d = r.to_dict()
+        d["patient_lab_number"] = r.patient.lab_number if r.patient else None
+        d["patient_im_lab_number"] = r.patient.im_lab_number if r.patient else None
+        d["patient_name"] = r.patient.name if r.patient else None
+        result.append(d)
+    return jsonify(result)
+
+
+@qc_bp.route("/qc/stats", methods=["GET"])
+def qc_stats():
+    """Return aggregate QC statistics.
+
+    Query params (all optional):
+        batch     — limit to a specific batch label
+        qc_type   — "panel" | "exome"
+    """
+    batch = (request.args.get("batch") or "").strip() or None
+    qc_type = (request.args.get("qc_type") or "").strip().lower() or None
+
+    query = NgsQc.query
+    if batch:
+        query = query.filter(NgsQc.batch.ilike(f"%{batch}%"))
+    if qc_type in ("panel", "exome"):
+        query = query.filter(NgsQc.qc_type == qc_type)
+
+    # Core metrics averages
+    median_cov = query.with_entities(db.func.avg(NgsQc.median_coverage)).scalar()
+    pct_20x = query.with_entities(db.func.avg(NgsQc.pct_20x)).scalar()
+    uniformity = query.with_entities(db.func.avg(NgsQc.uniformity_pct)).scalar()
+
+    # Pass/fail counts
+    pass_count = query.filter(NgsQc.pass_fail == "PASS").count()
+    fail_count = query.filter(NgsQc.pass_fail == "FAIL").count()
+    borderline_count = query.filter(NgsQc.pass_fail == "BORDERLINE").count()
+    total_count = query.count()
+
+    # Batch-level summary (last 20 batches)
+    batch_query = (
+        db.session.query(
+            NgsQc.batch,
+            NgsQc.qc_type,
+            db.func.avg(NgsQc.median_coverage).label("avg_median_coverage"),
+            db.func.avg(NgsQc.pct_20x).label("avg_pct_20x"),
+            db.func.avg(NgsQc.uniformity_pct).label("avg_uniformity_pct"),
+            db.func.count(NgsQc.id).label("record_count"),
+        )
+        .filter(NgsQc.batch.isnot(None))
+    )
+    if batch:
+        batch_query = batch_query.filter(NgsQc.batch.ilike(f"%{batch}%"))
+    if qc_type in ("panel", "exome"):
+        batch_query = batch_query.filter(NgsQc.qc_type == qc_type)
+
+    batch_query = (
+        batch_query
+        .group_by(NgsQc.batch, NgsQc.qc_type)
+        .order_by(db.func.max(NgsQc.uploaded_at).desc())
+        .limit(20)
+    )
+
+    batch_summaries = [
+        {
+            "batch": row.batch,
+            "qc_type": row.qc_type,
+            "avg_median_coverage": round(row.avg_median_coverage, 2) if row.avg_median_coverage else None,
+            "avg_pct_20x": round(row.avg_pct_20x, 2) if row.avg_pct_20x else None,
+            "avg_uniformity_pct": round(row.avg_uniformity_pct, 2) if row.avg_uniformity_pct else None,
+            "record_count": row.record_count,
+        }
+        for row in batch_query.all()
+    ]
+
+    return jsonify({
+        "averages": {
+            "median_coverage": round(median_cov, 2) if median_cov else None,
+            "pct_20x": round(pct_20x, 2) if pct_20x else None,
+            "uniformity_pct": round(uniformity, 2) if uniformity else None,
+        },
+        "pass_fail": {
+            "pass": pass_count,
+            "fail": fail_count,
+            "borderline": borderline_count,
+            "total": total_count,
+        },
+        "batch_summaries": batch_summaries,
+    })
+
+
+# Known metric column orders for Excel export (match the real QC files)
+_PANEL_METRIC_ORDER = [
+    "Panel_total_genes", "Panel_total_exons", "Panel_total_bases",
+    "Mean_coverage", "Median_coverage", "Average_depth_of_coverage",
+    "Total_aligned_reads", "Aligned_reads", "Aligned_reads(%)",
+    "Duplicated_reads", "Duplicated_reads(%)",
+    "Uniformity", "Uniformity(%)",
+    "Coverage_20X", "Coverage_20X(%)",
+    "Number_of_SNPs", "Number_of_indels", "Variant_number",
+    "Heterozygous_to_Homozygous_ratio", "Ts_to_Tv_ratio",
+]
+
+_EXOME_METRIC_ORDER = [
+    "# Reads", "% Reads", "% Perfect Index Reads",
+    "qc_failed_reads_pct", "q30_bases_pct",
+    "average_alignment_coverage_over_target_region",
+    "median_autosomal_coverage_over_target_region",
+    "number_of_duplicate_marked_reads_pct",
+    "aligned_reads_in_target_region",
+    "aligned_reads_in_target_region_pct",
+    "uniformity_of_coverage_pct_gt_02mean_over_target_region",
+    "pct_of_target_region_with_coverage_20x_inf",
+    "variants_snps_pass", "variants_deletions_hom_pass",
+    "variants_deletions_het_pass", "variants_insertions_hom_pass",
+    "variants_insertions_het_pass", "variants_het_to_hom_ratio_pass",
+    "variants_ti_to_tv_ratio_pass", "pct_reads_PF",
+    "indel", "variant_number", "avg_cov_on_targ_30x_flag.",
+]
+
+
+@qc_bp.route("/qc/records/download", methods=["GET"])
+def download_qc_records():
+    """Download filtered QC records as an Excel file with all metric columns.
+
+    Query params (all optional):
+        batch      — filter by batch label
+        qc_type    — "panel" | "exome"
+        pass_fail  — "PASS" | "FAIL" | "BORDERLINE"
+    """
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+    batch = (request.args.get("batch") or "").strip() or None
+    qc_type = (request.args.get("qc_type") or "").strip().lower() or None
+    pass_fail = (request.args.get("pass_fail") or "").strip().upper() or None
+
+    query = NgsQc.query.join(Patient, NgsQc.patient_id == Patient.id)
+
+    if batch:
+        query = query.filter(NgsQc.batch.ilike(f"%{batch}%"))
+    if qc_type in ("panel", "exome"):
+        query = query.filter(NgsQc.qc_type == qc_type)
+    if pass_fail in ("PASS", "FAIL", "BORDERLINE"):
+        query = query.filter(NgsQc.pass_fail == pass_fail)
+
+    records = query.order_by(NgsQc.uploaded_at.desc()).all()
+
+    # Collect all unique metric keys in a sensible order
+    has_panel = any(r.qc_type == "panel" for r in records)
+    has_exome = any(r.qc_type == "exome" for r in records)
+    seen_keys = set()
+    metric_keys = []
+    for key in (_PANEL_METRIC_ORDER if has_panel else []) + (_EXOME_METRIC_ORDER if has_exome else []):
+        if key not in seen_keys:
+            seen_keys.add(key)
+            metric_keys.append(key)
+    for r in records:
+        metrics = json.loads(r.metrics) if r.metrics else {}
+        for key in metrics:
+            if key not in seen_keys:
+                seen_keys.add(key)
+                metric_keys.append(key)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "QC Records"
+
+    # Build headers
+    fixed_headers = [
+        "Patient Lab #", "IM Lab #", "Patient Name", "Batch",
+        "Type", "Pass / Fail", "Uploaded At", "Notes", "Original Filename",
+    ]
+    headers = fixed_headers + metric_keys
+    ws.append(headers)
+
+    # Header styling
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+
+    # Data rows
+    for r in records:
+        metrics = json.loads(r.metrics) if r.metrics else {}
+        row = [
+            r.patient.lab_number if r.patient else None,
+            r.patient.im_lab_number if r.patient else None,
+            r.patient.name if r.patient else None,
+            r.batch,
+            r.qc_type,
+            r.pass_fail,
+            r.uploaded_at.isoformat() if r.uploaded_at else None,
+            r.notes,
+            r.original_filename,
+        ]
+        for key in metric_keys:
+            row.append(metrics.get(key))
+        ws.append(row)
+
+    # Auto-adjust column widths
+    for column in ws.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            try:
+                if cell.value is not None:
+                    max_length = max(max_length, len(str(cell.value)))
+            except Exception:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        ws.column_dimensions[column_letter].width = adjusted_width
+
+    # Freeze header row and first 9 columns
+    ws.freeze_panes = "J2"
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename_parts = ["qc_records"]
+    if batch:
+        filename_parts.append(batch)
+    if qc_type:
+        filename_parts.append(qc_type)
+    if pass_fail:
+        filename_parts.append(pass_fail.lower())
+    filename = "_".join(filename_parts) + ".xlsx"
+
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @qc_bp.route("/qc/upload", methods=["POST"])
