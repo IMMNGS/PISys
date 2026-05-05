@@ -10,7 +10,7 @@ from difflib import SequenceMatcher
 
 def _patient_to_dict(patient, include_hpo=True, include_singletons=False,
                      include_trios=False, include_vcf_files=False,
-                     include_disease_terms=False):
+                     include_disease_terms=False, include_variant_uploads=False):
     """Serialize a patient."""
     return patient.to_dict(
         include_hpo=include_hpo,
@@ -18,6 +18,7 @@ def _patient_to_dict(patient, include_hpo=True, include_singletons=False,
         include_trios=include_trios,
         include_vcf_files=include_vcf_files,
         include_disease_terms=include_disease_terms,
+        include_variant_uploads=include_variant_uploads,
     )
 
 

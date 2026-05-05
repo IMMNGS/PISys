@@ -64,6 +64,17 @@ export interface TrioInfo {
   created_at: string | null;
 }
 
+export interface VariantUploadInfo {
+  id: number;
+  patient_id: number;
+  file_type: string;
+  original_filename: string;
+  stored_filename: string;
+  relative_path: string;
+  file_size: number | null;
+  uploaded_at: string | null;
+}
+
 export interface VcfFileInfo {
   id: number;
   patient_id: number;
@@ -103,6 +114,50 @@ export interface PatientInfo {
   singletons?: SingletonInfo[];
   trios?: TrioInfo[];
   vcf_files?: VcfFileInfo[];
+  variant_uploads?: VariantUploadInfo[];
+}
+
+export type QcType = "panel" | "exome";
+
+export interface NgsQcInfo {
+  id: number;
+  patient_id: number;
+  qc_type: QcType;
+  batch: string | null;
+  median_coverage: number | null;
+  pct_20x: number | null;
+  uniformity_pct: number | null;
+  pass_fail: string | null;
+  notes: string | null;
+  metrics: Record<string, string>;
+  positive_control: Record<string, string>;
+  original_filename: string | null;
+  relative_path: string | null;
+  file_size: number | null;
+  uploaded_at: string | null;
+}
+
+export interface QcBulkUploadResult {
+  batch: string | null;
+  qc_type: QcType;
+  filename: string;
+  positive_control_label: string;
+  positive_control: Record<string, string>;
+  matched_count: number;
+  unmatched: string[];
+  records: NgsQcInfo[];
+}
+
+export interface VariantAuditEntry {
+  id: number;
+  patient_id: number | null;
+  variant_type: "singleton" | "trio";
+  variant_id: number;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_by: string;
+  changed_at: string | null;
 }
 
 export interface HPOTermPage {

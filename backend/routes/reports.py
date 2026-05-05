@@ -15,7 +15,7 @@ from docx.oxml.ns import qn
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
-from backend.models import db, Patient, Singleton, Trio
+from backend.models import db, Patient, Singleton, Trio, NgsQc
 from backend.routes.helpers import _patient_to_dict
 
 reports_bp = Blueprint("reports", __name__)
@@ -415,8 +415,40 @@ def generate_table_dmg(doc, patient):
     set_table_border_color(table, "FFFFFF")
     doc.add_paragraph()
 
-def generate_table_qc(doc):
-        """Insert the Sequencing Performance Metrics QC table."""
+def _fmt_qc_value(value, suffix=""):
+    """Format a numeric QC value for the report table; '' when missing."""
+    if value is None:
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if num.is_integer():
+        text = f"{int(num)}"
+    else:
+        text = f"{num:.1f}"
+    return text + suffix
+
+
+def _latest_qc_for_patient(patient):
+    """Return the most recent NgsQc row for a patient, or None."""
+    if patient is None or getattr(patient, "id", None) is None:
+        return None
+    return (
+        NgsQc.query
+        .filter_by(patient_id=patient.id)
+        .order_by(NgsQc.uploaded_at.desc())
+        .first()
+    )
+
+
+def generate_table_qc(doc, patient=None):
+        """Insert the Sequencing Performance Metrics QC table.
+
+        Auto-fills the % >20X, Uniformity, and Median Coverage cells from
+        the patient's most recent NgsQc record. Other cells (panel name,
+        gene/exon/base counts) remain templated for now.
+        """
         from docx.shared import Pt, Inches
 
         heading = doc.add_paragraph()
@@ -449,9 +481,17 @@ def generate_table_qc(doc):
             for run in cell.paragraphs[0].runs:
                 run.bold = True
 
+        qc = _latest_qc_for_patient(patient)
+        pct_20x_text = _fmt_qc_value(qc.pct_20x, "%") if qc else ""
+        uniformity_text = _fmt_qc_value(qc.uniformity_pct, "%") if qc else ""
+        median_cov_text = _fmt_qc_value(qc.median_coverage) if qc else ""
+
         row1_data = [
             "Immunological\nDisorders\nSuperPanel", "554", "15,798",
-            "2,359,627", "", "", "",
+            "2,359,627",
+            pct_20x_text,
+            uniformity_text,
+            median_cov_text,
         ]
         for i, val in enumerate(row1_data):
             table.cell(1, i).text = val
@@ -611,7 +651,7 @@ def create_word_document(
             generate_table(doc, i_variants, include_inherited_from=is_trio)
 
         # QC table
-        generate_table_qc(doc)
+        generate_table_qc(doc, patient)
 
         # Target region and gene list page
         doc.add_page_break()

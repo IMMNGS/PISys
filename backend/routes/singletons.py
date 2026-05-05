@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from flask import Blueprint, abort, jsonify, request, current_app
 from werkzeug.utils import secure_filename
 
-from backend.models import db, Patient, Singleton, VariantUpload
+from backend.models import db, Patient, Singleton, VariantUpload, VariantAuditLog
+from backend.security import current_user
 from backend.routes.helpers import (
     SINGLETON_FIELDS,
     _parse_variant_xlsx_rows,
@@ -16,6 +17,8 @@ from backend.routes.helpers import (
 )
 
 singletons_bp = Blueprint("singletons", __name__)
+
+_AUDIT_FIELDS = {"igv_review", "classification", "second_review_comment", "reportable_variant"}
 
 
 # ── CRUD ─────────────────────────────────────────────────────────────────
@@ -59,10 +62,27 @@ def update_singleton(singleton_id):
     if not singleton:
         abort(404)
     data = request.get_json()
+    user = current_user()
+    username = user.username if user else "system"
+    audit_entries = []
     for field in SINGLETON_FIELDS:
         if field in data:
             val = _normalize_variant_field(field, data[field])
+            if field in _AUDIT_FIELDS:
+                old_val = getattr(singleton, field, None)
+                if str(old_val) != str(val):
+                    audit_entries.append(VariantAuditLog(
+                        patient_id=singleton.patient_id,
+                        variant_type="singleton",
+                        variant_id=singleton_id,
+                        field_name=field,
+                        old_value=str(old_val) if old_val is not None else None,
+                        new_value=str(val) if val is not None else None,
+                        changed_by=username,
+                    ))
             setattr(singleton, field, val)
+    for entry in audit_entries:
+        db.session.add(entry)
     db.session.commit()
     return jsonify(singleton.to_dict())
 

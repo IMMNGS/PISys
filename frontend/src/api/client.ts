@@ -6,6 +6,10 @@ import type {
   SingletonInfo,
   TrioInfo,
   VcfFileInfo,
+  NgsQcInfo,
+  QcType,
+  QcBulkUploadResult,
+  VariantAuditEntry,
 } from "../types";
 
 const BASE = "/api";
@@ -919,6 +923,84 @@ export async function downloadSingleGeneReport(
   a.download = downloadName;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── QC Records ───────────────────────────────────────────────────────────
+
+export function fetchQcRecords(patientId: number): Promise<NgsQcInfo[]> {
+  return json(`${BASE}/patients/${patientId}/qc`);
+}
+
+export async function uploadQcBulk(
+  file: File,
+  qcType: QcType,
+  extras: { batch?: string; pass_fail?: string; notes?: string } = {},
+): Promise<QcBulkUploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("qc_type", qcType);
+  if (extras.batch) form.append("batch", extras.batch);
+  if (extras.pass_fail) form.append("pass_fail", extras.pass_fail);
+  if (extras.notes) form.append("notes", extras.notes);
+  const res = await request(`${BASE}/qc/upload`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: string }).error || `${res.status} ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
+export async function uploadQcFile(
+  patientId: number,
+  file: File,
+  qcType: QcType,
+  extras: { pass_fail?: string; notes?: string } = {},
+): Promise<NgsQcInfo> {
+  const result = await uploadQcBulk(file, qcType, extras);
+  const record = result.records.find((r) => r.patient_id === patientId);
+  if (!record) {
+    throw new Error(
+      result.unmatched.length
+        ? `Lab number not matched in QC file (unmatched: ${result.unmatched.join(", ")})`
+        : "No QC record found for this patient in the uploaded file",
+    );
+  }
+  return record;
+}
+
+export function createQcRecord(
+  patientId: number,
+  data: {
+    qc_type: QcType;
+    batch?: string | null;
+    median_coverage?: number | null;
+    pct_20x?: number | null;
+    uniformity_pct?: number | null;
+    pass_fail?: string | null;
+    notes?: string | null;
+    metrics?: Record<string, string>;
+  },
+): Promise<NgsQcInfo> {
+  return json(`${BASE}/patients/${patientId}/qc`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteQcRecord(qcId: number): Promise<{ message: string }> {
+  return json(`${BASE}/qc/${qcId}`, { method: "DELETE" });
+}
+
+export function fetchVariantAudit(
+  patientId: number,
+): Promise<VariantAuditEntry[]> {
+  return json(`${BASE}/patients/${patientId}/variant_audit`);
 }
 
 // ── Bulk Patient Import ──────────────────────────────────────────────────

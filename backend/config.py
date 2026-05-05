@@ -36,6 +36,7 @@ class Config:
     DATA_DIR = os.environ.get("DATA_DIR", os.path.join(_PROJECT_ROOT, "data"))
     VCF_DIR = os.path.join(DATA_DIR, "vcf")
     VARIANT_UPLOAD_DIR = os.path.join(DATA_DIR, "variant_uploads")
+    QC_DIR = os.path.join(DATA_DIR, "qc_uploads")
 
     # Max upload size for VCF files (default 5000 MB)
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "5000")) * 1024 * 1024
